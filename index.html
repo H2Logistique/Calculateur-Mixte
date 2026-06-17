@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- =================================================================== -->
+    <!-- VERSION DE L'APPLICATION — incrémenter à CHAQUE déploiement.         -->
+    <!-- Après déploiement, ouvrir Admin > Publier la mise à jour pour        -->
+    <!-- forcer le rechargement chez tous les utilisateurs connectés.         -->
+    <!-- =================================================================== -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>H2 Logistique — Application</title>
+
+    <!-- React & Babel (cdnjs : seul domaine autorisé dans l'aperçu ; fonctionne aussi en production) -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Firebase (compat) — actif uniquement si une config est fournie -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/11.6.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none !important; } }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        body { overscroll-behavior-y: none; }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        /* =================================================================
+           CONFIGURATION GLOBALE
+           ================================================================= */
+        const APP_VERSION = "2.0";            // <-- incrémenter à chaque déploiement
+        const ACCESS_CODE = "1010";           // code d'accès à l'application
+        const ADMIN_CODE  = "2525";           // code administrateur (tarification + catalogue)
+
+        // Renseignez ici les clés de votre projet Firebase pour le déploiement
+        // (sinon l'app fonctionne en mode local sur ce poste uniquement).
+        const FIREBASE_CONFIG = {
+            apiKey: "",
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
+        };
+
+        const APP_ID = (typeof __app_id !== 'undefined' && __app_id) ? __app_id : 'h2-logistique';
+
+        /* =================================================================
+           STOCKAGE LOCAL SÉCURISÉ (fallback mémoire si localStorage bloqué)
+           ================================================================= */
+        const _mem = {};
+        const LS = {
+            get(k) { try { return localStorage.getItem(k); } catch (e) { return (k in _mem) ? _mem[k] : null; } },
+            set(k, v) { try { localStorage.setItem(k, v); } catch (e) { _mem[k] = v; } },
+            remove(k) { try { localStorage.removeItem(k); } catch (e) { delete _mem[k]; } }
+        };
+
+        const cmpVer = (a, b) => {
+            const pa = String(a).split('.').map(n => parseInt(n) || 0);
+            const pb = String(b).split('.').map(n => parseInt(n) || 0);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const d = (pa[i] || 0) - (pb[i] || 0);
+                if (d) return d > 0 ? 1 : -1;
+            }
+            return 0;
+        };
+
+        const formatCurrency = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(v || 0);
+
+        const copyText = (text, onOk, onErr) => {
+            const ta = document.createElement("textarea");
+            ta.value = text; ta.style.position = "fixed"; ta.style.top = "0"; ta.style.left = "0"; ta.style.opacity = "0";
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            document.body.removeChild(ta);
+            ok ? onOk && onOk() : (onErr && onErr());
+        };
+
+        /* =================================================================
+           ICÔNES
+           ================================================================= */
+        const Ic = (p) => ({ size, className }) => <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{p}</svg>;
+        const Lock = Ic(<g><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></g>);
+        const Info = Ic(<g><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></g>);
+        const ArrowLeft = Ic(<g><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></g>);
+        const ChevronDown = Ic(<polyline points="6 9 12 15 18 9"></polyline>);
+        const ChevronUp = Ic(<polyline points="18 15 12 9 6 15"></polyline>);
+        const Trash2 = Ic(<g><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></g>);
+        const RotateCcw = Ic(<g><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></g>);
+        const KeyRound = Ic(<g><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"></path><circle cx="16.5" cy="7.5" r=".5"></circle></g>);
+        const MapPin = Ic(<g><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></g>);
+        const MapIcon = Ic(<g><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></g>);
+        const Plus = Ic(<g><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></g>);
+        const Minus = Ic(<line x1="5" y1="12" x2="19" y2="12"></line>);
+        const Search = Ic(<g><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></g>);
+        const X = Ic(<g><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></g>);
+        const Copy = Ic(<g><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></g>);
+        const Edit3 = Ic(<g><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></g>);
+        const Calculator = Ic(<g><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="8" y2="10"></line><line x1="12" y1="10" x2="12" y2="10"></line><line x1="16" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="8" y2="14"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="16" y1="14" x2="16" y2="18"></line><line x1="8" y1="18" x2="12" y2="18"></line></g>);
+        const Box = Ic(<g><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></g>);
+        const FileText = Ic(<g><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></g>);
+        const RefreshCw = Ic(<g><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></g>);
+        const Truck = Ic(<g><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></g>);
+        const Upload = Ic(<g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></g>);
+
+        /* =================================================================
+           DONNÉES — TARIFICATION
+           ================================================================= */
+        const INITIAL_DATA = {
+            prestation: [
+                { id: 'p1', name: 'Cubage m3', defaultPrice: 35 },
+                { id: 'p2', name: 'Étages et escalier', defaultPrice: 1, info: "Si l'ascenseur est petit (2p ou 3p) et que l'essentiel du mobilier doit être transporté par l'escalier, ajustez le nombre. Ex : 4e étage, indiquez 2 ou 3 en quantité afin de majorer le prix." },
+                { id: 'p3', name: 'Démontage / Remontage', defaultPrice: 50, info: "Appliquer pour le mobilier volumineux (Armoire, lit, vaisselier, canapé-lit...)" },
+                { id: 'p4', name: 'Portage (en m)', defaultPrice: 0.75 },
+                { id: 'p9', name: 'Option Confort', defaultPrice: 160 },
+                { id: 'p8', name: 'Distance (km)', iconType: 'local', defaultPrice: 1, unit: 'km', info: "Calcul : Départ de Paris vers Adresse A + Adresse B" },
+                { id: 'l2', name: 'Distance (km)', iconType: 'national', defaultPrice: 3.5, unit: 'km', info: "Le prix national est calculé par FORFAIT selon la distance (grille éditable en admin). Au-delà du dernier palier : prix au km." },
+                { id: 'l4', name: 'Transport en groupage', defaultPrice: 0 },
+            ],
+            ra_monte_meuble: [
+                { id: 'p5', name: 'Monte-meuble 1/2 journée', defaultPrice: 220 },
+                { id: 'p6', name: 'Monte-meuble 1 journée', defaultPrice: 320 },
+                { id: 'p7', name: 'AOT (Autorisation Stationnement)', defaultPrice: 25 },
+            ],
+            materiel: [
+                { id: 'm1', name: 'Cartons Standard', defaultPrice: 1 },
+                { id: 'm2', name: 'Cartons Livre', defaultPrice: 1.00 },
+                { id: 'm3', name: 'Cartons Penderie', defaultPrice: 10.00 },
+                { id: 'm4', name: 'Papier bulle', defaultPrice: 7, info: "10 cartons vaisselle = 1 papier bulle" },
+                { id: 'm5', name: 'Scotch', defaultPrice: 2, info: "20 cartons = 1 scotch" },
+                { id: 'm6', name: 'Livraison', defaultPrice: 30.00, readOnlyQuantity: true },
+            ],
+        };
+
+        const generateInitialMatrix = () => {
+            const data = [];
+            const grillePetitsVolumes = { 1: 80, 2: 120, 3: 160, 4: 200, 5: 240, 6: 275, 7: 310, 8: 340, 9: 370, 10: 400 };
+            for (let i = 1; i <= 150; i++) {
+                data.push({
+                    m3: i,
+                    prix: i <= 10 ? (grillePetitsVolumes[i] / i) : 35,
+                    etage: 1,
+                    portage: 0.75,
+                    confort: Math.ceil(i / 10) * 160,
+                    camion: i <= 25 ? 1 : Math.ceil((i - 5) / 20)
+                });
+            }
+            return data;
+        };
+
+        const DEFAULT_NATIONAL_GRID = [
+            { id: 'n1', max: 150, type: 'fixed', value: 1100, addOn: 0 },
+            { id: 'n2', max: 200, type: 'fixed', value: 1200, addOn: 0 },
+            { id: 'n3', max: 300, type: 'fixed', value: 1500, addOn: 0 },
+            { id: 'n4', max: 400, type: 'fixed', value: 1700, addOn: 0 },
+            { id: 'n5', max: 500, type: 'fixed', value: 1900, addOn: 0 },
+            { id: 'n6', max: 600, type: 'fixed', value: 2200, addOn: 0 },
+            { id: 'n7', max: 99999, type: 'perKm', value: 3.5, addOn: 0 },
+        ];
+
+        const DEFAULT_LOCAL_GRID = [
+            { id: 'loc1', min: 30, max: 60, price: 1 },
+            { id: 'loc2', min: 61, max: 100, price: 1.5 }
+        ];
+
+        /* =================================================================
+           DONNÉES — CATALOGUE CUBAGE
+           ================================================================= */
+        const INITIAL_CATALOG = [
+            { id: 1, name: "Armoire (1 porte)", vol: 1 }, { id: 2, name: "Armoire (2 portes coulissante)", vol: 2 },
+            { id: 3, name: "Armoire (2 portes)", vol: 2 }, { id: 4, name: "Armoire (3 portes coulissante)", vol: 3 },
+            { id: 5, name: "Armoire (3 portes)", vol: 3 }, { id: 6, name: "Armoire (4 porte)", vol: 4 },
+            { id: 7, name: "Armoire (4 portes coulissante)", vol: 4 }, { id: 8, name: "Aspirateur", vol: 0.1 },
+            { id: 9, name: "Banc", vol: 0.3 }, { id: 10, name: "Barbecue (grand)", vol: 1 },
+            { id: 11, name: "Barbecue (moyen)", vol: 0.5 }, { id: 12, name: "Barbecue (petit)", vol: 0.25 },
+            { id: 13, name: "Bibliothèque (grand)", vol: 1.5 }, { id: 14, name: "Bibliothèque (moyen)", vol: 1 },
+            { id: 15, name: "Bibliothèque (petit)", vol: 0.5 }, { id: 16, name: "Biblo", vol: 0.1 },
+            { id: 17, name: "Buffet", vol: 1.5 }, { id: 18, name: "Bureau (grand)", vol: 1.5 },
+            { id: 19, name: "Bureau (moyen) / Secrétaire", vol: 1 }, { id: 20, name: "Bureau (petit)", vol: 0.5 },
+            { id: 21, name: "Caisse plastique (grand)", vol: 0.5 }, { id: 22, name: "Caisse plastique (moyen)", vol: 0.2 },
+            { id: 23, name: "Caisse plastique (petit)", vol: 0.1 }, { id: 24, name: "Divers / 0,1M3 supplémentaire", vol: 0.1 },
+            { id: 25, name: "Caisson", vol: 0.3 }, { id: 26, name: "Canapé (2 places)", vol: 2 },
+            { id: 27, name: "Canapé (3 places)", vol: 2.5 }, { id: 28, name: "Canapé d'angle", vol: 3.5 },
+            { id: 29, name: "Carton livre", vol: 0.05 }, { id: 30, name: "Carton penderie", vol: 0.3 },
+            { id: 31, name: "Carton standard", vol: 0.1 }, { id: 32, name: "Carton vaisselle", vol: 0.1 },
+            { id: 33, name: "Chaîne HiFi", vol: 0.35 }, { id: 34, name: "Chaise de bureau", vol: 0.25 },
+            { id: 35, name: "Chaise pliante", vol: 0.05 }, { id: 36, name: "Chaise", vol: 0.15 },
+            { id: 37, name: "Chiffonnier / Semainier", vol: 0.5 }, { id: 38, name: "Climatiseur", vol: 0.3 },
+            { id: 39, name: "Coffre (grand)", vol: 1 }, { id: 40, name: "Coffre (moyen)", vol: 0.5 },
+            { id: 41, name: "Coffre (petit)", vol: 0.25 }, { id: 42, name: "Coiffeuse", vol: 0.5 },
+            { id: 43, name: "Colonne", vol: 0.4 }, { id: 44, name: "Commode (grand)", vol: 1.5 },
+            { id: 45, name: "Commode (moyen)", vol: 1 }, { id: 46, name: "Commode (petit)", vol: 0.5 },
+            { id: 47, name: "Congélateur coffre (moyen / grand)", vol: 1 }, { id: 48, name: "Congélateur coffre (petit)", vol: 0.5 },
+            { id: 49, name: "Console", vol: 0.5 }, { id: 50, name: "Desserte", vol: 0.3 },
+            { id: 51, name: "Divers / 0,5M3 supplémentaire", vol: 0.5 }, { id: 52, name: "Divers / 1M3 supplémentaire", vol: 1 },
+            { id: 53, name: "Echelle", vol: 0.15 }, { id: 54, name: "Ecran", vol: 0.15 },
+            { id: 55, name: "Etabli", vol: 1 }, { id: 56, name: "Etagère (grand)", vol: 1 },
+            { id: 57, name: "Etagère (moyen)", vol: 0.5 }, { id: 58, name: "Etagère (petit)", vol: 0.25 },
+            { id: 59, name: "Fauteuil (petit)", vol: 0.5 }, { id: 60, name: "Fauteuil", vol: 1 },
+            { id: 61, name: "Four / Cuisinière", vol: 1 }, { id: 62, name: "Guéridon (petit)", vol: 0.25 },
+            { id: 63, name: "Guéridon", vol: 0.5 }, { id: 64, name: "Imprimante", vol: 0.2 },
+            { id: 65, name: "Jardinière", vol: 0.3 }, { id: 66, name: "Lampadaire / Halogène (petit)", vol: 0.25 },
+            { id: 67, name: "Lampadaire / Halogène", vol: 0.5 }, { id: 68, name: "Lampe", vol: 0.15 },
+            { id: 69, name: "Lave vaisselle", vol: 1 }, { id: 70, name: "Lit (1 place)", vol: 1 },
+            { id: 71, name: "Lit (2 place)", vol: 2 }, { id: 72, name: "Lit bébé / enfant", vol: 0.6 },
+            { id: 73, name: "Lit coffre (1 place)", vol: 1 }, { id: 74, name: "Lit coffre (2 places)", vol: 2 },
+            { id: 75, name: "Lit superposé / Mezzanine", vol: 2 }, { id: 76, name: "Lustre / Plafonnier", vol: 0.1 },
+            { id: 77, name: "Machine à laver", vol: 1 }, { id: 78, name: "Matelas (1p)", vol: 0.5 },
+            { id: 79, name: "Matelas (2p)", vol: 1 }, { id: 80, name: "Meuble à chaussures (petit)", vol: 0.5 },
+            { id: 81, name: "Meuble à chaussures", vol: 1 }, { id: 82, name: "Meuble haut/bas (1 bloc)", vol: 0.5 },
+            { id: 83, name: "Meuble haut/bas (2 bloc)", vol: 1 }, { id: 84, name: "Meuble haut/bas (3 bloc)", vol: 1.5 },
+            { id: 85, name: "Meuble haut/bas (4 bloc)", vol: 2 }, { id: 86, name: "Meuble Kallax (12 cases)", vol: 1 },
+            { id: 87, name: "Meuble Kallax (16 cases)", vol: 0.2 }, { id: 88, name: "Meuble Kallax (4 cases)", vol: 0.3 },
+            { id: 89, name: "Meuble Kallax (8 cases)", vol: 0.6 }, { id: 90, name: "Meuble TV (grand)", vol: 1.5 },
+            { id: 91, name: "Meuble TV (moyen)", vol: 1 }, { id: 92, name: "Meuble TV (petit)", vol: 0.5 },
+            { id: 93, name: "Micro ondes", vol: 0.1 }, { id: 94, name: "Miroir (grand)", vol: 0.3 },
+            { id: 95, name: "Miroir (moyen)", vol: 0.2 }, { id: 96, name: "Miroir (petit)", vol: 0.1 },
+            { id: 97, name: "Option Décrochage / Raccrochage", vol: 0 }, { id: 98, name: "Option Decrochage", vol: 0 },
+            { id: 99, name: "Option Demontage / Remontage", vol: 0 }, { id: 100, name: "Option Fragile", vol: 0 },
+            { id: 101, name: "Option Lourd", vol: 0 }, { id: 102, name: "Ordinateur", vol: 0.1 },
+            { id: 103, name: "Panière à linge", vol: 0.2 }, { id: 104, name: "Parasol", vol: 0.3 },
+            { id: 105, name: "Petit électroménager", vol: 0.1 }, { id: 106, name: "Piano droit", vol: 2 },
+            { id: 107, name: "Piano électrique", vol: 0.3 }, { id: 108, name: "Plante / Pot (grand)", vol: 1 },
+            { id: 109, name: "Plante / Pot (moyen)", vol: 0.3 }, { id: 110, name: "Plante / Pot (petit)", vol: 0.1 },
+            { id: 111, name: "Vrac 0.5m3", vol: 0.5 }, { id: 112, name: "Plaque cuisson", vol: 0.25 },
+            { id: 113, name: "Porte manteaux", vol: 0.2 }, { id: 114, name: "Poubelle", vol: 0.2 },
+            { id: 115, name: "Pouf", vol: 0.2 }, { id: 116, name: "Pousette", vol: 0.3 },
+            { id: 117, name: "Refrigérateur (petit)", vol: 0.5 }, { id: 118, name: "Réfrigérateur américain", vol: 2 },
+            { id: 119, name: "Réfrigérateur", vol: 1 }, { id: 120, name: "Sac", vol: 0.1 },
+            { id: 121, name: "Sèche linge", vol: 1 }, { id: 122, name: "Table (4p)", vol: 1 },
+            { id: 123, name: "Table (6p)", vol: 1.5 }, { id: 124, name: "Table (8p)", vol: 2 },
+            { id: 125, name: "Table à langer", vol: 1 }, { id: 126, name: "Table à repasser", vol: 0.15 },
+            { id: 127, name: "Table basse (petit)", vol: 0.5 }, { id: 128, name: "Table basse", vol: 1 },
+            { id: 129, name: "Table d'appoint", vol: 0.25 }, { id: 130, name: "Table de chevet", vol: 0.15 },
+            { id: 131, name: "Table Gigogne", vol: 0.25 }, { id: 132, name: "Table pliante", vol: 0.25 },
+            { id: 133, name: "Tableau / Affiche (grand)", vol: 0.25 }, { id: 134, name: "Tableau / Affiche (moyen)", vol: 0.15 },
+            { id: 135, name: "Tableau / Affiche (petit)", vol: 0.1 }, { id: 136, name: "Tablette", vol: 0.2 },
+            { id: 137, name: "Tabouret haut", vol: 0.3 }, { id: 138, name: "Tabouret", vol: 0.15 },
+            { id: 139, name: "Tapis de course", vol: 0.5 }, { id: 140, name: "Tapis", vol: 0.2 },
+            { id: 141, name: "Tête de lit", vol: 0.3 }, { id: 142, name: "Tondeuse", vol: 0.4 },
+            { id: 143, name: "TV (grand)", vol: 0.5 }, { id: 144, name: "TV", vol: 0.3 },
+            { id: 145, name: "Vaisselier (1 porte)", vol: 1 }, { id: 146, name: "Vaisselier (2 porte)", vol: 2 },
+            { id: 147, name: "Vaisselier (3 porte)", vol: 3 }, { id: 148, name: "Vaisselier (4 porte)", vol: 4 },
+            { id: 149, name: "Vase", vol: 0.1 }, { id: 150, name: "Velo", vol: 0.3 },
+            { id: 151, name: "Portant", vol: 0.3 }, { id: 152, name: "Carton standard (plein)", vol: 0.1 },
+            { id: 153, name: "Valise", vol: 0.15 }, { id: 154, name: "Console (petit)", vol: 0.25 },
+            { id: 155, name: "Buffet (petit)", vol: 1 }, { id: 156, name: "Outillage de jardin (lot)", vol: 0.5 },
+            { id: 157, name: "Option Décheterie", vol: 0 }, { id: 158, name: "Banquette / BZ", vol: 1 },
+            { id: 159, name: "Canapé convertible", vol: 2.5 }, { id: 160, name: "Table de jardin", vol: 0.4 },
+            { id: 161, name: "Chaise de jardin", vol: 0.15 }, { id: 162, name: "Transat / Chaise longue", vol: 0.2 },
+            { id: 163, name: "Machine à laver (petit)", vol: 0.5 }, { id: 164, name: "Vélo d'appartement", vol: 0.5 },
+            { id: 165, name: "Salon de jardin (complet)", vol: 2 }, { id: 166, name: "Cave à vin", vol: 1 },
+            { id: 167, name: "Aquarium (vide)", vol: 0.3 }, { id: 168, name: "Arbre à chat", vol: 0.5 },
+            { id: 169, name: "Outillage (lot)", vol: 0.5 }, { id: 170, name: "Hotte aspirante", vol: 0.3 },
+            { id: 171, name: "Enfilade", vol: 2 }, { id: 172, name: "Scooter / Moto", vol: 2 },
+            { id: 173, name: "Mobilier demonté", vol: -0.5 }
+        ];
+
+        const ROOMS = ["Generale", "Salon", "Cuisine", "Chambre 1", "Chambre 2", "Chambre 3", "Chambre 4", "SDB", "Entree", "Garage", "Exterieur", "Divers"];
+        const ROOM_LABELS = { Generale: "Générale", Salon: "Salon / Séjour", Cuisine: "Cuisine", "Chambre 1": "Chambre 1", "Chambre 2": "Chambre 2", "Chambre 3": "Chambre 3", "Chambre 4": "Chambre 4", SDB: "Salle de bain / WC", Entree: "Entrée / Couloir", Garage: "Garage / Cave", Exterieur: "Extérieur", Divers: "Divers" };
+
+        const DEFAULT_NOTES = `Adresse de chargement : 
+
+Logement : 
+Étage : 
+Escalier : 
+Ascenseur : 
+Portage : 
+Détails :
+——
+Adresse de déchargement : 
+
+Logement :
+Étage :
+Escalier :
+Ascenseur : 
+Portage : 
+Détails : 
+——
+
+Date du déménagement :
+
+——
+
+Inventaire : 
+`;
+
+        /* =================================================================
+           COMPOSANTS PARTAGÉS
+           ================================================================= */
+        const Modal = ({ icon, color, title, children, onClose, closeLabel = "OK" }) => (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4 no-print">
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm text-center">
+                    {icon && <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${color}`}>{icon}</div>}
+                    <h2 className="text-xl font-bold text-slate-800 mb-2">{title}</h2>
+                    <div className="text-slate-600 mb-6 leading-relaxed">{children}</div>
+                    <button onClick={onClose} className="w-full py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700 transition-all shadow-md">{closeLabel}</button>
+                </div>
+            </div>
+        );
+
+        const Toast = ({ msg }) => (
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-[80] no-print">{msg}</div>
+        );
+
+        /* =================================================================
+           TARIFICATION — ADMIN
+           ================================================================= */
+        const PriceAdmin = ({ prices, setPrices, matrixData, setMatrixData, initialData, nationalGrid, setNationalGrid, localGrid, setLocalGrid, onBack, onPublishVersion, latestVersion, dbReady }) => {
+            const handlePriceChange = (id, v) => { const n = parseFloat(v); setPrices(p => ({ ...p, [id]: isNaN(n) ? 0 : n })); };
+            const handleMatrix = (i, f, v) => { const n = parseFloat(v); setMatrixData(d => { const a = [...d]; a[i] = { ...a[i], [f]: isNaN(n) ? 0 : n }; return a; }); };
+            const handleLocal = (i, f, v) => { const n = parseFloat(v); setLocalGrid(d => { const a = [...d]; a[i] = { ...a[i], [f]: isNaN(n) ? 0 : n }; return a; }); };
+            const handleNat = (i, f, v) => {
+                setNationalGrid(d => {
+                    const a = [...d];
+                    if (f === 'type') a[i] = { ...a[i], type: v };
+                    else { const n = parseFloat(v); a[i] = { ...a[i], [f]: isNaN(n) ? 0 : n }; }
+                    return a;
+                });
+            };
+            const addNatRow = () => setNationalGrid(d => [...d, { id: 'n' + Date.now(), max: 800, type: 'fixed', value: 2500, addOn: 0 }]);
+            const delNatRow = (i) => setNationalGrid(d => d.filter((_, idx) => idx !== i));
+
+            const renderPriceTable = (items, title) => (
+                <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-700 mb-3">{title}</h3>
+                    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 text-slate-500 uppercase text-xs border-b"><tr><th className="px-4 py-2">Désignation</th><th className="px-4 py-2 w-32 text-right">Prix (€)</th></tr></thead>
+                            <tbody>
+                                {items.map(item => (
+                                    <tr key={item.id} className="border-b last:border-0 hover:bg-slate-50">
+                                        <td className="px-4 py-2 text-slate-700 font-medium">{item.name}{item.iconType ? ` (${item.iconType})` : ''}</td>
+                                        <td className="px-4 py-2"><input type="number" step="0.01" value={prices[item.id] || 0} onChange={e => handlePriceChange(item.id, e.target.value)} className="w-full text-right border border-slate-300 rounded p-1.5 focus:ring-2 focus:ring-blue-500 outline-none" /></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="bg-slate-100 p-4 md:p-8">
+                    <div className="max-w-6xl mx-auto bg-white p-6 rounded-lg shadow border border-slate-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h2 className="text-2xl font-bold text-slate-800">Administration — Tarification</h2>
+                            <button onClick={onBack} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700"><ArrowLeft size={16} /> Retour au calculateur</button>
+                        </div>
+
+                        {/* Gestion des versions */}
+                        <div className="mb-8 bg-indigo-50 border border-indigo-200 rounded-lg p-5">
+                            <div className="flex items-center gap-2 mb-2"><RefreshCw size={18} className="text-indigo-600" /><h3 className="text-lg font-bold text-indigo-800">Diffusion de version</h3></div>
+                            <p className="text-sm text-slate-600 mb-3">Version de ce poste : <span className="font-bold">v{APP_VERSION}</span> &nbsp;•&nbsp; Version publiée (cloud) : <span className="font-bold">{latestVersion ? 'v' + latestVersion : '—'}</span></p>
+                            <p className="text-xs text-slate-500 mb-4">Après avoir déployé une nouvelle version du fichier, cliquez ci-dessous : tous les utilisateurs connectés verront une bannière les invitant à recharger.</p>
+                            <button onClick={onPublishVersion} disabled={!dbReady} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold shadow-sm ${dbReady ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                                <Upload size={16} /> Publier la version v{APP_VERSION} pour tous
+                            </button>
+                            {!dbReady && <p className="text-xs text-amber-600 mt-2">Firebase non connecté : renseignez FIREBASE_CONFIG dans le code pour activer cette fonction.</p>}
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                            <div>
+                                {renderPriceTable(initialData.prestation, "1. Prestation de service")}
+                                {renderPriceTable(initialData.ra_monte_meuble, "2. Monte-meuble et AOT")}
+                                {renderPriceTable(initialData.materiel, "3. Matériel & Livraison")}
+                            </div>
+                            <div className="flex flex-col gap-8">
+                                {/* Grille LOCAL */}
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-700 mb-3">Grille distance LOCAL</h3>
+                                    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm text-center">
+                                            <thead className="bg-slate-50 text-slate-500 uppercase text-xs border-b"><tr><th className="px-4 py-2">De (km)</th><th className="px-4 py-2">À (km)</th><th className="px-4 py-2">Prix/km (€)</th></tr></thead>
+                                            <tbody>
+                                                {localGrid.map((row, i) => (
+                                                    <tr key={row.id} className="border-b last:border-0 hover:bg-slate-50">
+                                                        <td className="px-4 py-2"><input type="number" value={row.min} onChange={e => handleLocal(i, 'min', e.target.value)} className="w-full text-center border border-slate-300 rounded p-1.5 outline-none focus:ring-2 focus:ring-blue-500" /></td>
+                                                        <td className="px-4 py-2"><input type="number" value={row.max} onChange={e => handleLocal(i, 'max', e.target.value)} className="w-full text-center border border-slate-300 rounded p-1.5 outline-none focus:ring-2 focus:ring-blue-500" /></td>
+                                                        <td className="px-4 py-2"><input type="number" step="0.1" value={row.price} onChange={e => handleLocal(i, 'price', e.target.value)} className="w-full text-center border border-slate-300 rounded p-1.5 outline-none focus:ring-2 focus:ring-blue-500" /></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                {/* Grille FORFAIT NATIONAL */}
+                                <div>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2"><MapIcon size={18} className="text-blue-600" /> Forfaits distance NATIONAL</h3>
+                                        <button onClick={addNatRow} className="text-xs flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100"><Plus size={14} /> Palier</button>
+                                    </div>
+                                    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm text-center">
+                                            <thead className="bg-slate-50 text-slate-500 uppercase text-xs border-b"><tr><th className="px-3 py-2">Jusqu'à (km)</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Valeur (€)</th><th className="px-3 py-2">+/- (€)</th><th className="px-2 py-2"></th></tr></thead>
+                                            <tbody>
+                                                {nationalGrid.map((row, i) => (
+                                                    <tr key={row.id} className="border-b last:border-0 hover:bg-slate-50">
+                                                        <td className="px-2 py-2"><input type="number" value={row.max} onChange={e => handleNat(i, 'max', e.target.value)} className="w-20 text-center border border-slate-300 rounded p-1 outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                                        <td className="px-2 py-2">
+                                                            <select value={row.type} onChange={e => handleNat(i, 'type', e.target.value)} className="text-xs border border-slate-300 rounded p-1 outline-none bg-white">
+                                                                <option value="fixed">Forfait</option>
+                                                                <option value="perKm">€/km</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="px-2 py-2"><input type="number" step="0.1" value={row.value} onChange={e => handleNat(i, 'value', e.target.value)} className="w-20 text-center border border-slate-300 rounded p-1 outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                                        <td className="px-2 py-2"><input type="number" step="0.1" value={row.addOn || 0} onChange={e => handleNat(i, 'addOn', e.target.value)} className="w-16 text-center border border-slate-300 rounded p-1 outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                                        <td className="px-1 py-2"><button onClick={() => delNatRow(i)} className="text-slate-300 hover:text-red-500"><Trash2 size={15} /></button></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-2">« Forfait » = prix fixe tous camions inclus pour la tranche. « €/km » = prix au km × distance (utilisé au-delà du dernier forfait).</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Matrice volume */}
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-700 mb-3">Matrice de calcul (volume)</h3>
+                            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden h-[600px] flex flex-col">
+                                <div className="overflow-y-auto flex-grow">
+                                    <table className="w-full text-sm text-center relative">
+                                        <thead className="bg-slate-800 text-white text-xs sticky top-0 z-10 uppercase shadow-md">
+                                            <tr><th className="px-2 py-3 w-16">m³</th><th className="px-2 py-3">Prix base (€)</th><th className="px-2 py-3">Étages (€)</th><th className="px-2 py-3">Portage (€)</th><th className="px-2 py-3 w-20">Camions</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {matrixData.map((row, i) => (
+                                                <tr key={row.m3} className="border-b last:border-0 hover:bg-slate-50">
+                                                    <td className="px-2 py-2 font-bold bg-slate-50 border-r">{row.m3}</td>
+                                                    <td className="px-2 py-2"><input type="number" step="0.01" value={row.prix} onChange={e => handleMatrix(i, 'prix', e.target.value)} className="w-20 text-center border border-slate-300 rounded p-1 outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                                    <td className="px-2 py-2"><input type="number" step="0.1" value={row.etage} onChange={e => handleMatrix(i, 'etage', e.target.value)} className="w-20 text-center border border-slate-300 rounded p-1 outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                                    <td className="px-2 py-2"><input type="number" step="0.1" value={row.portage} onChange={e => handleMatrix(i, 'portage', e.target.value)} className="w-20 text-center border border-slate-300 rounded p-1 outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                                    <td className="px-2 py-2 text-slate-600 font-medium">{row.camion}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        /* =================================================================
+           TARIFICATION — SECTION & CARTE
+           ================================================================= */
+        const TableSection = ({ title, items, colorClass, quantities, prices, onQuantityChange, calculateRowTotal, onClear, defaultExpanded = true, quantityLabel = "Quantité", disableQuantityInput = false, customTotal }) => {
+            const [open, setOpen] = useState(defaultExpanded);
+            const computed = items.reduce((s, it) => s + calculateRowTotal(it.id), 0);
+            const sectionTotal = customTotal !== undefined ? customTotal : computed;
+            const booleanItems = ['p5', 'p6', 'p7', 'l4', 'p9'];
+            return (
+                <div className="mb-4 bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
+                    <div className={`px-6 py-4 ${colorClass} border-b border-slate-200 flex justify-between items-center`}>
+                        <div className="flex items-center gap-3 cursor-pointer select-none flex-grow" onClick={() => setOpen(!open)}>
+                            <h3 className="font-bold text-lg">{title}</h3>
+                            {!open && <span className="text-sm font-medium text-slate-800 bg-white px-2 py-0.5 rounded-full shadow-sm">{formatCurrency(sectionTotal)}</span>}
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <button onClick={(e) => { e.stopPropagation(); onClear(items); }} className="opacity-70 hover:opacity-100 hover:text-red-400 p-1 rounded" title="Effacer"><Trash2 size={18} /></button>
+                            <div className="cursor-pointer ml-2" onClick={() => setOpen(!open)}>{open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</div>
+                        </div>
+                    </div>
+                    {open && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-xs text-slate-500 uppercase bg-slate-50"><tr><th className="px-6 py-3 w-1/3">Désignation</th><th className="px-6 py-3 w-1/4 text-center">{quantityLabel}</th><th className="px-6 py-3 w-1/4 text-right">Unité de prix</th><th className="px-6 py-3 w-1/6 text-right">Total</th></tr></thead>
+                                <tbody>
+                                    {items.map((item) => {
+                                        const qv = quantities[item.id];
+                                        const displayQty = (qv === 0 || qv === undefined) ? '' : qv;
+                                        const isBool = booleanItems.includes(item.id);
+                                        const isDisabled = disableQuantityInput || item.readOnlyQuantity;
+                                        return (
+                                            <tr key={item.id} className="border-b hover:bg-slate-50">
+                                                <td className="px-6 py-4 font-medium text-slate-900">
+                                                    <div className="flex items-center gap-3">
+                                                        {item.iconType === 'local' && <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-md shadow-sm shrink-0"><MapPin size={16} /><span className="text-[10px] font-bold tracking-wider">LOCAL</span></div>}
+                                                        {item.iconType === 'national' && <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-md shadow-sm shrink-0"><MapIcon size={16} /><span className="text-[10px] font-bold tracking-wider">NATIONAL</span></div>}
+                                                        <span className={item.iconType ? "font-semibold text-slate-800" : ""}>{item.name}</span>
+                                                        {item.info && (
+                                                            <div className="group relative flex items-center cursor-help">
+                                                                <Info size={22} className="text-blue-600 hover:text-blue-800 drop-shadow-md" />
+                                                                <div className="absolute left-full ml-2 w-64 p-3 bg-slate-800 text-white text-sm rounded shadow-xl z-50 hidden group-hover:block border border-slate-700">{item.info}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {isBool ? (
+                                                        <div className="flex justify-center gap-1">
+                                                            <button onClick={() => onQuantityChange(item.id, 1)} className={`px-3 py-1 text-xs font-semibold rounded-l-md border ${qv === 1 ? 'bg-green-600 text-white border-green-600' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>OUI</button>
+                                                            <button onClick={() => onQuantityChange(item.id, 0)} className={`px-3 py-1 text-xs font-semibold rounded-r-md border ${qv === 0 ? 'bg-red-600 text-white border-red-600' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>NON</button>
+                                                        </div>
+                                                    ) : (
+                                                        <input type="number" min="0" value={displayQty} placeholder="0" disabled={isDisabled} onChange={e => onQuantityChange(item.id, e.target.value)} className={`w-24 text-center p-2 border border-slate-300 rounded-md outline-none ${isDisabled ? 'bg-slate-100 cursor-not-allowed' : 'focus:ring-2 focus:ring-blue-500'}`} />
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    {item.id === 'l4' ? <span className="text-slate-400 text-xs italic">Option</span> : item.id === 'l2' ? <span className="text-blue-600 font-medium text-xs">Forfait</span> : <span className="text-slate-600 font-medium">{formatCurrency(prices[item.id])}</span>}
+                                                </td>
+                                                <td className="px-6 py-4 text-right font-bold text-slate-700">{formatCurrency(calculateRowTotal(item.id))}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                    <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
+                                        <td colSpan="3" className="px-6 py-4 text-right text-slate-600 uppercase text-xs tracking-wider">Sous-total {title}</td>
+                                        <td className="px-6 py-4 text-right text-slate-800 text-base">{formatCurrency(sectionTotal)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const OfferCard = ({ title, subtitle, ht, adj, final, color, needsConfirmation }) => {
+            const adjAmount = final - ht;
+            const colors = { blue: "border-slate-200 bg-blue-50 text-blue-900 font-bold", purple: "border-purple-200 bg-purple-50 text-purple-900 font-bold", teal: "border-teal-200 bg-teal-50 text-teal-900 font-bold", orange: "border-orange-200 bg-orange-50 text-orange-900 font-bold", indigo: "border-indigo-200 bg-indigo-50 text-indigo-900 font-bold" };
+            return (
+                <div className="border rounded-lg overflow-hidden flex flex-col h-full shadow-sm">
+                    <div className={`p-4 text-center border-b uppercase tracking-wider ${colors[color]}`}>
+                        {title}
+                        {subtitle && <div className="text-[10px] font-medium normal-case tracking-normal mt-0.5 opacity-80">{subtitle}</div>}
+                    </div>
+                    {needsConfirmation ? (
+                        <div className="p-4 flex-grow flex items-center justify-center bg-slate-50"><span className="text-center font-bold text-slate-700 text-sm">Confirmer avec l'exploitation pour SSTT</span></div>
+                    ) : (
+                        <div className="p-4 space-y-2 flex-grow bg-white">
+                            <div className="flex justify-between text-sm text-slate-500"><span>Total HT :</span><span>{formatCurrency(ht)}</span></div>
+                            <div className="flex justify-between text-sm text-slate-500 border-b border-slate-100 pb-2"><span>Ajustement :</span><span className={adj < 0 ? 'text-green-600 font-medium' : (adj > 0 ? 'text-red-600 font-medium' : 'text-slate-600')}>{adj}% ({formatCurrency(adjAmount)})</span></div>
+                            <div className="pt-2 text-center"><span className="block text-xs text-slate-400 uppercase tracking-wider mb-1">Total TTC</span><span className="block text-2xl font-bold text-slate-800">{formatCurrency(final)}</span></div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        /* =================================================================
+           MODULE TARIFICATION
+           ================================================================= */
+        const PriceModule = ({ db, dbReady, latestVersion, publishVersion, sharedPrices, setSharedPrices, sharedMatrix, setSharedMatrix, sharedNatGrid, setSharedNatGrid, sharedLocalGrid, setSharedLocalGrid }) => {
+            const [view, setView] = useState('calc');
+            const prices = sharedPrices;
+            const setPrices = setSharedPrices;
+            const [quantities, setQuantities] = useState(() => { const q = { l1: 0 }; [...INITIAL_DATA.prestation, ...INITIAL_DATA.ra_monte_meuble, ...INITIAL_DATA.materiel].forEach(i => q[i.id] = 0); return q; });
+            const matrixData = sharedMatrix;
+            const setMatrixData = setSharedMatrix;
+            const [adjustment, setAdjustment] = useState(0);
+            const [showLogin, setShowLogin] = useState(false);
+            const [passwordInput, setPasswordInput] = useState('');
+            const [loginError, setLoginError] = useState('');
+            const nationalGrid = sharedNatGrid;
+            const setNationalGrid = setSharedNatGrid;
+            const localGrid = sharedLocalGrid;
+            const setLocalGrid = setSharedLocalGrid;
+            const [alertType, setAlertType] = useState(null);
+            const [infoPopup, setInfoPopup] = useState(null);
+
+            const updatePricesBasedOnCubage = (cubageValue) => {
+                const vol = parseInt(cubageValue) || 0;
+                const row = matrixData.find(r => r.m3 === vol);
+                if (row) {
+                    setPrices(prev => ({ ...prev, 'p1': row.prix, 'p2': row.etage, 'p4': row.portage, 'p9': row.confort, 'l1': 1300 }));
+                    setQuantities(prev => ({ ...prev, 'l1': row.camion }));
+                } else if (vol > 0) {
+                    const camion = vol <= 25 ? 1 : Math.ceil((vol - 5) / 20);
+                    setQuantities(prev => ({ ...prev, 'l1': camion }));
+                }
+            };
+
+            const handleLogin = (e) => { e.preventDefault(); if (passwordInput === ADMIN_CODE) { setView('admin'); setShowLogin(false); setPasswordInput(''); setLoginError(''); } else setLoginError('Mot de passe incorrect'); };
+
+            const handleQuantityChange = (id, value) => {
+                let newVal = 0;
+                if (typeof value === 'number') newVal = value;
+                else if (value !== '') { newVal = parseInt(value); if (isNaN(newVal)) newVal = 0; }
+                const tempCubage = id === 'p1' ? newVal : (quantities['p1'] || 0);
+                const tempLocalDist = id === 'p8' ? newVal : (quantities['p8'] || 0);
+
+                if (id === 'p1' && newVal >= 45) setAlertType('volume');
+                if (id === 'p8' && newVal > 100) setAlertType('approche');
+                if ((id === 'p1' || id === 'p8') && tempLocalDist > 50 && tempCubage > 0 && tempCubage < 15) setAlertType('cubage_distance');
+                if (id === 'l4' && newVal === 1) setInfoPopup({ title: "Information Groupage", message: "Notifier au client le besoin de disponibilité. Ne rédiger aucune date ferme sur le devis." });
+                if (id === 'p9' && newVal === 1) setInfoPopup({ title: "Option Confort", message: "Les cartons sont inclus dans le prix de l'option Confort (160 € par tranche de 10 m³). Ne remplissez pas la section « 3. Matériel & Livraison ». Si le nombre de cartons demandé est extrême, adaptez le prix manuellement." });
+
+                if (id === 'p8') {
+                    setPrices(prev => { const next = { ...prev }; const rule = localGrid.find(r => newVal >= r.min && newVal <= r.max); next['p8'] = rule ? rule.price : (localGrid[0]?.price || 1); return next; });
+                }
+
+                setQuantities(prev => {
+                    const next = { ...prev, [id]: value === '' ? 0 : newVal };
+                    if (['m1', 'm2', 'm3', 'm4', 'm5'].includes(id)) { const hasMat = ['m1', 'm2', 'm3', 'm4', 'm5'].some(mid => (mid === id ? newVal : prev[mid]) > 0); next['m6'] = hasMat ? 1 : 0; }
+                    if (id === 'p5' || id === 'p6') { if (next['p5'] === 1 || next['p6'] === 1) next['p7'] = 1; else if (next['p5'] === 0 && next['p6'] === 0) next['p7'] = 0; }
+                    return next;
+                });
+                if (id === 'p1') updatePricesBasedOnCubage(newVal);
+            };
+
+            const handleClearSection = (items) => {
+                setQuantities(prev => { const next = { ...prev }; items.forEach(i => { if (!i.readOnlyQuantity) next[i.id] = 0; }); if (items.some(i => i.id === 'p1')) next['l1'] = 0; if (items.some(i => i.id === 'm1')) next['m6'] = 0; return next; });
+            };
+            const handleGlobalClear = () => { const q = { l1: 0 }; [...INITIAL_DATA.prestation, ...INITIAL_DATA.ra_monte_meuble, ...INITIAL_DATA.materiel].forEach(i => q[i.id] = 0); setQuantities(q); setAdjustment(0); };
+
+            // --- Forfait national : recherche du palier ---
+            const findNationalBand = (dist) => {
+                if (dist <= 0) return null;
+                const sorted = [...nationalGrid].sort((a, b) => a.max - b.max);
+                return sorted.find(b => dist <= b.max) || sorted[sorted.length - 1];
+            };
+
+            const calculateRowTotal = (id) => {
+                const qty = quantities[id] || 0;
+                const price = prices[id] || 0;
+                const dist = quantities['l2'] || 0;
+                const isGroupageActive = quantities['l4'] === 1;
+
+                if (id === 'p8') { const rule = localGrid.find(r => qty >= r.min && qty <= r.max); if (!rule) return 0; return qty * rule.price * (quantities['l1'] || 0); }
+                if (id === 'p2') return Math.round((price * (quantities['p1'] || 0) * qty) / 5) * 5;
+                if (id === 'p4') { if (qty <= 20) return 0; return Math.round((price * qty * (quantities['l1'] || 0)) / 5) * 5; }
+                if (id === 'p9') return qty === 1 ? price : 0;
+                if (id === 'l1') return 0;
+                if (id === 'l2') {
+                    if (dist === 0) return 0;
+                    const band = findNationalBand(dist);
+                    if (!band) return 0;
+                    const addOn = band.addOn || 0;
+                    if (band.type === 'fixed') {
+                        const forfait = band.value + addOn; // tous camions inclus
+                        if (isGroupageActive) {
+                            const groupageCalc = (forfait / 20) * (quantities['p1'] || 0) * 1.35;
+                            return Math.round(Math.min(groupageCalc, forfait));
+                        }
+                        return Math.round(forfait);
+                    } else { // perKm
+                        const perTruck = dist * band.value + addOn;
+                        if (isGroupageActive) {
+                            const groupageCalc = (perTruck / 20) * (quantities['p1'] || 0) * 1.35;
+                            return Math.round(Math.min(groupageCalc, perTruck * (quantities['l1'] || 0)));
+                        }
+                        return Math.round(perTruck * (quantities['l1'] || 0));
+                    }
+                }
+                if (id === 'l4') return 0;
+                if (id === 'p1') return Math.round(qty * price);
+                return qty * price;
+            };
+
+            const calculateSectionTotal = (items) => items.reduce((s, it) => s + calculateRowTotal(it.id), 0);
+
+            const basePrestationItems = INITIAL_DATA.prestation.filter(i => i.id !== 'l2' && i.id !== 'l4');
+            const prestationTotalForBase = calculateSectionTotal(basePrestationItems);
+            const raTotal = calculateSectionTotal(INITIAL_DATA.ra_monte_meuble);
+            const materielTotal = Math.round(calculateSectionTotal(INITIAL_DATA.materiel) / 5) * 5;
+            const effectiveMaterielTotal = quantities['p9'] === 1 ? 0 : materielTotal;
+            const distanceTotal = calculateRowTotal('l2');
+            const baseTotal = Math.round((prestationTotalForBase + raTotal + effectiveMaterielTotal) / 5) * 5;
+            const prestationLDAddon = prestationTotalForBase - calculateRowTotal('p1') - calculateRowTotal('p8');
+            const isGroupageActive = quantities['l4'] === 1;
+            const thirdTotalBase = Math.round((distanceTotal + effectiveMaterielTotal + raTotal + prestationLDAddon) / 5) * 5;
+
+            let prestationSubtotal = calculateSectionTotal(INITIAL_DATA.prestation);
+            if (distanceTotal > 0) prestationSubtotal -= calculateRowTotal('p1');
+
+            const needsConfirmationLD = quantities['p1'] >= 27 && quantities['p1'] <= 33;
+            const applyAdj = (v) => Math.round((v + (v * (adjustment / 100))) / 5) * 5;
+            const thirdOfferAdjustment = adjustment < 0 ? 0 : adjustment;
+            const applyThirdAdj = (v) => Math.round((v + (v * (thirdOfferAdjustment / 100))) / 5) * 5;
+
+            const natDist = quantities['l2'] || 0;
+            const natBand = findNationalBand(natDist);
+            const natSubtitle = natBand ? (natBand.type === 'fixed' ? `Forfait ≤ ${natBand.max} km : ${formatCurrency(natBand.value + (natBand.addOn || 0))}` : `${formatCurrency(natBand.value)}/km`) : '';
+
+            if (view === 'admin') return <PriceAdmin prices={prices} setPrices={setPrices} matrixData={matrixData} setMatrixData={setMatrixData} initialData={INITIAL_DATA} nationalGrid={nationalGrid} setNationalGrid={setNationalGrid} localGrid={localGrid} setLocalGrid={setLocalGrid} onBack={() => setView('calc')} onPublishVersion={publishVersion} latestVersion={latestVersion} dbReady={dbReady} />;
+
+            return (
+                <div className="p-4 md:p-8">
+                    <div className="max-w-7xl mx-auto">
+                        {showLogin && (
+                            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+                                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                                    <div className="flex items-center gap-3 mb-6"><div className="bg-slate-100 p-2 rounded-full"><Lock size={20} className="text-slate-700" /></div><h2 className="text-xl font-bold text-slate-800">Accès Administrateur</h2></div>
+                                    <div>
+                                        <input type="password" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleLogin(e); }} placeholder="Code administrateur" autoFocus className="w-full p-3 border border-slate-300 rounded-lg mb-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                                        {loginError && <p className="text-red-500 text-sm mb-4 font-medium">{loginError}</p>}
+                                        <div className="flex gap-3 justify-end mt-2"><button type="button" onClick={() => setShowLogin(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">Annuler</button><button type="button" onClick={handleLogin} className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 shadow-sm">Valider</button></div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {alertType && (
+                            <Modal icon={<Info size={32} />} color="bg-amber-100 text-amber-600" title="Valider avec l'exploitation" onClose={() => setAlertType(null)} closeLabel="J'ai compris">
+                                {alertType === 'volume' && "Pour un volume supérieur à 45 m³, valider le prix avec l'exploitation."}
+                                {alertType === 'approche' && "Distance National : renseignez la cellule Distance (km) NATIONAL."}
+                                {alertType === 'cubage_distance' && "Motif : cubage & distance intermédiaire."}
+                            </Modal>
+                        )}
+                        {infoPopup && (
+                            <Modal icon={<Info size={32} />} color="bg-blue-100 text-blue-600" title={infoPopup.title} onClose={() => setInfoPopup(null)}>{infoPopup.message}</Modal>
+                        )}
+
+                        <div className="flex flex-col lg:flex-row gap-6 items-start">
+                            <div className="w-full lg:w-2/3 flex flex-col gap-4">
+                                <TableSection title="1. Prestation de service" items={INITIAL_DATA.prestation} colorClass="bg-slate-800 text-white" quantities={quantities} prices={prices} onQuantityChange={handleQuantityChange} calculateRowTotal={calculateRowTotal} onClear={handleClearSection} customTotal={prestationSubtotal} />
+                                <TableSection title="2. Monte-meuble et AOT" items={INITIAL_DATA.ra_monte_meuble} colorClass="bg-slate-800 text-white" quantities={quantities} prices={prices} onQuantityChange={handleQuantityChange} calculateRowTotal={calculateRowTotal} onClear={handleClearSection} defaultExpanded={false} />
+                                <TableSection title="3. Matériel & Livraison" items={INITIAL_DATA.materiel} colorClass="bg-slate-800 text-white" quantities={quantities} prices={prices} onQuantityChange={handleQuantityChange} calculateRowTotal={calculateRowTotal} onClear={handleClearSection} defaultExpanded={false} />
+                            </div>
+
+                            <div className="w-full lg:w-1/3 lg:sticky lg:top-24 no-print flex flex-col gap-4">
+                                <div className="bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden">
+                                    <div className="bg-slate-800 text-white px-5 py-4 flex justify-between items-center">
+                                        <h3 className="font-bold text-lg">Récapitulatif</h3>
+                                        <div className="bg-slate-700 px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-2 border border-slate-600 shadow-inner"><Truck size={16} className="text-slate-300" /><span className="text-amber-400 text-base">{quantities['l1'] || 0}</span></div>
+                                    </div>
+                                    <div className="p-5 space-y-6 bg-slate-50">
+                                        <div className="flex flex-col gap-3 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="text-sm font-bold text-slate-700">Remise / Majoration</label>
+                                                <div className="flex gap-2">
+                                                    <button onClick={handleGlobalClear} title="Tout effacer" className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-md border border-red-200"><RotateCcw size={16} /></button>
+                                                    <button onClick={() => setShowLogin(true)} title="Admin" className="p-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md border border-slate-300"><Lock size={16} /></button>
+                                                </div>
+                                            </div>
+                                            <select value={adjustment} onChange={e => setAdjustment(parseInt(e.target.value))} className="w-full p-2.5 text-base border border-slate-300 rounded-lg bg-slate-50 outline-none font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer">
+                                                <option value="-15">- 15%</option><option value="-10">- 10%</option><option value="-5">- 5%</option><option value="0">0%</option><option value="5">+ 5%</option><option value="10">+ 10%</option><option value="15">+ 15%</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col gap-4">
+                                            <OfferCard title={quantities['p9'] === 1 ? "Confort" : "Standard"} ht={baseTotal} adj={adjustment} final={applyAdj(baseTotal)} color={quantities['p9'] === 1 ? "purple" : "blue"} />
+                                            {quantities['l2'] > 0 && (
+                                                <OfferCard
+                                                    title={quantities['p9'] === 1 ? (isGroupageActive ? "Groupage (Confort)" : "National Forfait (Confort)") : (isGroupageActive ? "Groupage National" : "National Forfait")}
+                                                    subtitle={isGroupageActive ? "Groupage — " + natSubtitle : natSubtitle}
+                                                    ht={thirdTotalBase} adj={thirdOfferAdjustment} final={applyThirdAdj(thirdTotalBase)}
+                                                    color={quantities['p9'] === 1 ? "indigo" : (isGroupageActive ? "teal" : "orange")}
+                                                    needsConfirmation={needsConfirmationLD}
+                                                />
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        /* =================================================================
+           MODULE CUBAGE & INVENTAIRE
+           ================================================================= */
+        const CubageModule = ({ db, dbReady }) => {
+            const [catalog, setCatalog] = useState(() => { const s = LS.get('h2_catalog'); return s ? JSON.parse(s) : []; });
+            const [inventory, setInventory] = useState(() => { const s = LS.get('h2_inventory'); return s ? JSON.parse(s) : []; });
+            const [notes, setNotes] = useState(() => LS.get('h2_notes') || DEFAULT_NOTES);
+            const [room, setRoom] = useState('Generale');
+            const [search, setSearch] = useState('');
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [showAdminCode, setShowAdminCode] = useState(false);
+            const [adminCodeInput, setAdminCodeInput] = useState('');
+            const [adminError, setAdminError] = useState('');
+            const [edit, setEdit] = useState({ id: '', name: '', vol: '' });
+            const [showForm, setShowForm] = useState(false);
+            const [notesOpen, setNotesOpen] = useState(false);
+            const [confirm, setConfirm] = useState(null);
+            const [toast, setToast] = useState('');
+            const [mobileView, setMobileView] = useState('catalog');
+            const [isDesktop, setIsDesktop] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
+            const seededRef = useRef(false);
+
+            useEffect(() => { const onR = () => setIsDesktop(window.innerWidth >= 1024); window.addEventListener('resize', onR); return () => window.removeEventListener('resize', onR); }, []);
+
+            // Seed local si vide & pas de cloud
+            useEffect(() => { if (catalog.length === 0 && !dbReady) setCatalog(INITIAL_CATALOG); }, []);
+
+            // Persistance locale
+            useEffect(() => { LS.set('h2_catalog', JSON.stringify(catalog)); }, [catalog]);
+            useEffect(() => { LS.set('h2_inventory', JSON.stringify(inventory)); }, [inventory]);
+            useEffect(() => { const t = setTimeout(() => LS.set('h2_notes', notes), 400); return () => clearTimeout(t); }, [notes]);
+
+            // Synchro Cloud du catalogue
+            const catRef = () => db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('inventory_data').doc('master');
+            useEffect(() => {
+                if (!dbReady) return;
+                const unsub = catRef().onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const remote = doc.data();
+                        if (remote.catalog && Array.isArray(remote.catalog) && remote.catalog.length > 0) {
+                            setCatalog(prev => JSON.stringify(prev) !== JSON.stringify(remote.catalog) ? remote.catalog : prev);
+                        } else if (!seededRef.current) {
+                            seededRef.current = true;
+                            const seed = catalog.length > 0 ? catalog : INITIAL_CATALOG;
+                            catRef().set({ catalog: seed, lastCatalogUpdate: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                        }
+                    } else if (!seededRef.current) {
+                        seededRef.current = true;
+                        const seed = catalog.length > 0 ? catalog : INITIAL_CATALOG;
+                        catRef().set({ catalog: seed, lastCatalogUpdate: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                    }
+                }, (err) => { console.error("Listener catalogue:", err); if (catalog.length === 0) setCatalog(INITIAL_CATALOG); });
+                return () => unsub && unsub();
+            }, [dbReady]);
+
+            const pushCatalogToCloud = (next) => { if (!dbReady) return; catRef().set({ catalog: next, lastCatalogUpdate: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(e => console.error(e)); };
+
+            const showT = (m) => { setToast(m); setTimeout(() => setToast(''), 2500); };
+
+            const totalVolume = useMemo(() => inventory.reduce((s, it) => s + (it.vol * it.qty), 0), [inventory]);
+            const filtered = useMemo(() => catalog.filter(i => i.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name)), [catalog, search]);
+            const grouped = useMemo(() => inventory.reduce((acc, it) => { (acc[it.room] = acc[it.room] || []).push(it); return acc; }, {}), [inventory]);
+
+            const addToInventory = (itemId) => {
+                const ci = catalog.find(i => i.id === itemId); if (!ci) return;
+                setInventory(prev => { const ex = prev.find(i => i.itemId === itemId && i.room === room); if (ex) return prev.map(i => (i.itemId === itemId && i.room === room) ? { ...i, qty: i.qty + 1 } : i); return [...prev, { itemId: ci.id, name: ci.name, vol: ci.vol, qty: 1, room }]; });
+            };
+            const updateQty = (r, itemId, delta) => {
+                setInventory(prev => {
+                    const idx = prev.findIndex(i => i.itemId === itemId && i.room === r);
+                    if (idx === -1) { if (delta > 0) { const ci = catalog.find(i => i.id === itemId); if (ci) return [...prev, { itemId: ci.id, name: ci.name, vol: ci.vol, qty: 1, room: r }]; } return prev; }
+                    const next = [...prev]; next[idx] = { ...next[idx], qty: next[idx].qty + delta };
+                    if (next[idx].qty <= 0) next.splice(idx, 1);
+                    return next;
+                });
+            };
+            const qtyInRoom = (itemId) => { const it = inventory.find(i => i.itemId === itemId && i.room === room); return it ? it.qty : 0; };
+
+            const verifyAdmin = (e) => { e.preventDefault(); if (adminCodeInput === ADMIN_CODE) { setIsAdmin(true); setShowAdminCode(false); setAdminCodeInput(''); setAdminError(''); showT("Mode Admin activé"); } else setAdminError("Code incorrect"); };
+            const toggleAdmin = () => { if (isAdmin) { setIsAdmin(false); setShowForm(false); showT("Mode Admin désactivé"); } else setShowAdminCode(true); };
+
+            const saveItem = () => {
+                if (!edit.name || isNaN(parseFloat(edit.vol))) { showT("Nom et volume requis"); return; }
+                const vol = parseFloat(edit.vol);
+                let next;
+                if (edit.id) next = catalog.map(i => i.id == edit.id ? { ...i, name: edit.name, vol } : i);
+                else next = [...catalog, { id: Date.now(), name: edit.name, vol }];
+                setCatalog(next); pushCatalogToCloud(next);
+                setEdit({ id: '', name: '', vol: '' }); setShowForm(false);
+                showT(dbReady ? "Catalogue mis à jour pour tous" : "Catalogue mis à jour");
+            };
+            const deleteItem = (id) => { setConfirm({ msg: "Supprimer cet objet du catalogue ?", action: () => { const next = catalog.filter(i => i.id !== id); setCatalog(next); pushCatalogToCloud(next); showT("Objet supprimé"); } }); };
+            const loadEdit = (item) => { setEdit({ id: item.id, name: item.name, vol: item.vol }); setShowForm(true); };
+
+            const copyInventory = () => {
+                if (inventory.length === 0) { showT("Inventaire vide"); return; }
+                let text = "";
+                Object.keys(grouped).sort().forEach(r => { text += `${(ROOM_LABELS[r] || r).toUpperCase()}\n`; grouped[r].forEach(it => { text += `${it.name}\t${it.qty}\n`; }); text += "\n"; });
+                text += `TOTAL:\t${totalVolume.toFixed(2)} m³`;
+                const cartonTypes = ["Carton livre", "Carton penderie", "Carton standard", "Carton vaisselle"];
+                const counts = {}; let has = false;
+                inventory.forEach(it => { if (cartonTypes.includes(it.name)) { counts[it.name] = (counts[it.name] || 0) + it.qty; has = true; } });
+                if (has) { text += "\n\n--- DÉTAIL CARTONS ---\n"; Object.keys(counts).sort().forEach(n => { text += `${n}\t${counts[n]}\n`; }); }
+                copyText(text, () => showT("Inventaire copié"), () => showT("Erreur copie"));
+            };
+            const copyNotesFn = () => copyText(notes, () => showT("Notes copiées"), () => showT("Erreur copie"));
+
+            const CatalogPanel = (
+                <section className="flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden h-full">
+                    <div className="p-4 bg-white border-b border-slate-100 sticky top-0 z-10 shadow-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><Box size={18} className="text-blue-500" /> Catalogue</h2>
+                            {isAdmin && <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded border border-red-200 uppercase">Mode Admin</span>}
+                        </div>
+                        <div className="mb-3">
+                            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Pièce active</label>
+                            <select value={room} onChange={e => setRoom(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
+                                {ROOMS.map(r => <option key={r} value={r}>{ROOM_LABELS[r]}</option>)}
+                            </select>
+                        </div>
+                        <div className="relative">
+                            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un objet..." className="w-full pl-9 pr-8 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" />
+                            <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
+                            {search && <button onClick={() => setSearch('')} className="absolute right-2 top-3 text-slate-400 hover:text-slate-600 bg-white rounded-full p-0.5"><X size={16} /></button>}
+                        </div>
+                        {isAdmin && (
+                            <div className="mt-3">
+                                <button onClick={() => setShowForm(!showForm)} className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-100 px-2 py-1 rounded">+ Créer / Modifier objet (Cloud)</button>
+                                {showForm && (
+                                    <div className="mt-2 p-3 bg-slate-100 rounded-lg border border-slate-200">
+                                        <div className="grid grid-cols-3 gap-2 mb-2">
+                                            <div className="col-span-2"><label className="text-xs text-slate-500">Nom</label><input type="text" value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} className="w-full p-1.5 border rounded text-sm" /></div>
+                                            <div><label className="text-xs text-slate-500">Vol (m³)</label><input type="number" step="0.01" value={edit.vol} onChange={e => setEdit({ ...edit, vol: e.target.value })} className="w-full p-1.5 border rounded text-sm" /></div>
+                                        </div>
+                                        <button onClick={saveItem} className="w-full bg-blue-600 text-white py-1.5 rounded text-sm font-medium hover:bg-blue-700 shadow-sm">Enregistrer et diffuser</button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                        {filtered.map(item => {
+                            const q = qtyInRoom(item.id);
+                            return (
+                                <div key={item.id} className={`flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm hover:border-blue-300 ${q > 0 ? 'bg-blue-50/40' : ''}`}>
+                                    <div className="flex-1 pr-2">
+                                        <div className="font-semibold text-sm text-slate-800">{item.name}</div>
+                                        <div className="text-xs text-slate-500 font-mono">{item.vol.toFixed(2)} m³</div>
+                                        {isAdmin && <div className="flex gap-2 mt-1"><button onClick={() => loadEdit(item)} className="text-[10px] text-blue-400 hover:text-blue-600 underline">Modifier</button><button onClick={() => deleteItem(item.id)} className="text-[10px] text-slate-300 hover:text-red-500 underline">Suppr.</button></div>}
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-0.5 shadow-sm">
+                                        <button onClick={() => updateQty(room, item.id, -1)} className={`w-9 h-9 flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-white rounded ${q === 0 ? 'opacity-30 pointer-events-none' : ''}`}><Minus size={16} /></button>
+                                        <span className="w-6 text-center font-bold text-sm text-slate-800">{q}</span>
+                                        <button onClick={() => addToInventory(item.id)} className="w-9 h-9 flex items-center justify-center text-blue-600 hover:bg-white rounded"><Plus size={18} /></button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {filtered.length === 0 && <div className="text-center text-slate-400 text-sm py-10">Aucun objet trouvé</div>}
+                    </div>
+                </section>
+            );
+
+            const InventoryPanel = (
+                <section className="flex flex-col bg-slate-50 border border-slate-200 rounded-xl overflow-hidden h-full">
+                    <div className="p-4 bg-white border-b border-slate-100 sticky top-0 z-10 flex justify-between items-center shadow-sm">
+                        <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><FileText size={18} className="text-emerald-500" /> Inventaire</h2>
+                        <div className="flex gap-2">
+                            <button onClick={copyInventory} className="text-xs text-blue-600 hover:text-blue-800 font-medium border border-blue-200 px-2 py-1 rounded bg-blue-50 flex items-center gap-1"><Copy size={13} /> Copier</button>
+                            <button onClick={() => setConfirm({ msg: "Vider tout l'inventaire ?", action: () => { setInventory([]); showT("Inventaire vidé"); } })} className="text-xs text-red-500 hover:text-red-700 font-medium border border-red-200 px-2 py-1 rounded bg-red-50 flex items-center gap-1"><Trash2 size={13} /> Vider</button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {inventory.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-64 text-slate-400"><Box size={48} className="mb-4 opacity-50" /><p className="text-sm">Aucun objet ajouté</p><p className="text-xs mt-1">Sélectionnez une pièce et ajoutez des objets.</p></div>
+                        ) : (
+                            Object.keys(grouped).map(r => {
+                                const items = grouped[r];
+                                const rt = items.reduce((s, it) => s + it.vol * it.qty, 0);
+                                return (
+                                    <div key={r} className="mb-4 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                                        <div className="bg-slate-50 px-3 py-2 border-b border-slate-100 flex justify-between items-center"><span className="font-bold text-sm text-slate-700 uppercase tracking-wide">{ROOM_LABELS[r] || r}</span><span className="text-xs font-mono font-bold text-blue-600">{rt.toFixed(2)} m³</span></div>
+                                        <div className="divide-y divide-slate-50">
+                                            {items.map(it => (
+                                                <div key={it.itemId} className="p-3 flex items-center justify-between">
+                                                    <div className="flex-1"><div className="text-sm font-medium text-slate-800">{it.name}</div><div className="text-[10px] text-slate-400">PU: {it.vol} | Total: {(it.vol * it.qty).toFixed(2)}</div></div>
+                                                    <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-0.5 border border-slate-100">
+                                                        <button onClick={() => updateQty(r, it.itemId, -1)} className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-white rounded"><Minus size={15} /></button>
+                                                        <span className="w-6 text-center font-bold text-sm text-slate-700">{it.qty}</span>
+                                                        <button onClick={() => updateQty(r, it.itemId, 1)} className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-blue-500 hover:bg-white rounded"><Plus size={15} /></button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </section>
+            );
+
+            return (
+                <div className="p-3 md:p-6">
+                    {/* Barre d'outils du module */}
+                    <div className="max-w-7xl mx-auto mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="bg-blue-50 px-4 py-2 rounded-lg border border-blue-100 flex items-center gap-2">
+                            <span className="text-xs text-blue-600 uppercase font-bold">Volume total</span>
+                            <span className="text-xl font-bold text-blue-800">{totalVolume.toFixed(2)}</span><span className="text-xs text-blue-600">m³</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setNotesOpen(true)} className="bg-amber-50 text-amber-600 border border-amber-200 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-amber-100 shadow-sm"><Edit3 size={16} /><span className="text-xs font-bold">NOTES</span></button>
+                            <button onClick={toggleAdmin} className={`p-2 rounded-lg border ${isAdmin ? 'bg-red-50 text-red-600 border-red-200' : 'bg-slate-100 text-slate-500 border-slate-300 hover:text-blue-600'}`} title="Administration"><Lock size={16} /></button>
+                        </div>
+                    </div>
+
+                    {/* Toggle mobile */}
+                    {!isDesktop && (
+                        <div className="max-w-7xl mx-auto mb-3 flex bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
+                            <button onClick={() => setMobileView('catalog')} className={`flex-1 py-2 text-sm font-semibold rounded-md ${mobileView === 'catalog' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}>Catalogue</button>
+                            <button onClick={() => setMobileView('inventory')} className={`flex-1 py-2 text-sm font-semibold rounded-md ${mobileView === 'inventory' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Inventaire {inventory.length > 0 && `(${inventory.reduce((s, i) => s + i.qty, 0)})`}</button>
+                        </div>
+                    )}
+
+                    <div className="max-w-7xl mx-auto">
+                        {isDesktop ? (
+                            <div className="grid grid-cols-2 gap-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>{CatalogPanel}{InventoryPanel}</div>
+                        ) : (
+                            <div style={{ height: 'calc(100vh - 250px)', minHeight: '450px' }}>{mobileView === 'catalog' ? CatalogPanel : InventoryPanel}</div>
+                        )}
+                    </div>
+
+                    {/* Code admin */}
+                    {showAdminCode && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                                <h3 className="text-lg font-bold text-slate-800 mb-2">Accès Administrateur</h3>
+                                <p className="text-sm text-slate-500 mb-4">Entrez le code pour modifier le catalogue global.</p>
+                                <div>
+                                    <input type="password" value={adminCodeInput} onChange={e => setAdminCodeInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') verifyAdmin(e); }} autoFocus className="w-full p-3 border border-slate-300 rounded-lg mb-3 text-center tracking-widest text-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Code d'accès" />
+                                    {adminError && <p className="text-red-500 text-xs mb-3 text-center">{adminError}</p>}
+                                    <div className="flex gap-2"><button type="button" onClick={() => { setShowAdminCode(false); setAdminError(''); }} className="flex-1 py-2 text-slate-600 font-medium bg-slate-100 rounded-lg hover:bg-slate-200">Annuler</button><button type="button" onClick={verifyAdmin} className="flex-1 py-2 text-white font-medium bg-blue-600 rounded-lg hover:bg-blue-700">Valider</button></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notes */}
+                    {notesOpen && (
+                        <div className="fixed inset-0 z-[65] flex justify-end">
+                            <div onClick={() => setNotesOpen(false)} className="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+                            <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col">
+                                <div className="p-4 bg-amber-50 border-b border-amber-100 flex justify-between items-center">
+                                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Edit3 size={18} className="text-amber-500" /> Notes</h2>
+                                    <button onClick={() => setNotesOpen(false)} className="text-slate-400 hover:text-slate-600 bg-white rounded-full p-1"><X size={22} /></button>
+                                </div>
+                                <div className="p-2 border-b border-slate-100 flex justify-end gap-2 bg-white">
+                                    <button onClick={copyNotesFn} className="text-xs text-blue-600 hover:text-blue-800 font-medium border border-blue-200 px-3 py-1.5 rounded bg-blue-50">Copier</button>
+                                    <button onClick={() => setConfirm({ msg: "Vider toutes les notes ?", action: () => { setNotes(DEFAULT_NOTES); showT("Notes réinitialisées"); } })} className="text-xs text-red-500 hover:text-red-700 font-medium border border-red-200 px-3 py-1.5 rounded bg-red-50">Vider</button>
+                                </div>
+                                <div className="flex-1 p-4 bg-yellow-50"><textarea value={notes} onChange={e => setNotes(e.target.value)} className="w-full h-full bg-transparent resize-none outline-none text-sm text-slate-700 font-mono leading-relaxed" placeholder="Prendre des notes ici..."></textarea></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Confirmation */}
+                    {confirm && (
+                        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                                <h3 className="text-lg font-bold text-slate-800 mb-2">Confirmation</h3>
+                                <p className="text-sm text-slate-500 mb-4">{confirm.msg}</p>
+                                <div className="flex gap-2"><button onClick={() => setConfirm(null)} className="flex-1 py-2 text-slate-600 font-medium bg-slate-100 rounded-lg hover:bg-slate-200">Non</button><button onClick={() => { confirm.action(); setConfirm(null); }} className="flex-1 py-2 text-white font-medium bg-red-600 rounded-lg hover:bg-red-700">Oui</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {toast && <Toast msg={toast} />}
+                </div>
+            );
+        };
+
+        /* =================================================================
+           CONSOLE — synthèse des tarifs appliqués (accès code admin)
+           ================================================================= */
+        const ConsoleView = ({ prices, localGrid, nationalGrid, matrixData }) => {
+            const fixedRows = [
+                { label: 'Démontage / Remontage (par meuble)', val: formatCurrency(prices.p3) },
+                { label: 'Option Confort (par tranche de 10 m³)', val: formatCurrency((matrixData.find(r => r.m3 === 10) || {}).confort || 160) },
+                { label: 'Monte-meuble — 1/2 journée', val: formatCurrency(prices.p5) },
+                { label: 'Monte-meuble — 1 journée', val: formatCurrency(prices.p6) },
+                { label: 'AOT (autorisation de stationnement)', val: formatCurrency(prices.p7) },
+                { label: 'Livraison de matériel', val: formatCurrency(prices.m6) },
+                { label: 'Carton standard', val: formatCurrency(prices.m1) },
+                { label: 'Carton livre', val: formatCurrency(prices.m2) },
+                { label: 'Carton penderie', val: formatCurrency(prices.m3) },
+                { label: 'Papier bulle', val: formatCurrency(prices.m4) },
+                { label: 'Scotch', val: formatCurrency(prices.m5) },
+            ];
+            const sortedNat = [...nationalGrid].sort((a, b) => a.max - b.max);
+            const Card = ({ title, icon, children }) => (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <div className="bg-slate-800 text-white px-4 py-3 font-bold flex items-center gap-2">{icon}{title}</div>
+                    <div className="overflow-x-auto">{children}</div>
+                </div>
+            );
+            return (
+                <div className="p-4 md:p-8">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="mb-6">
+                            <h2 className="text-2xl font-bold text-slate-800">Console — Tarifs appliqués</h2>
+                            <p className="text-sm text-slate-500 mt-1">Vue synthétique en lecture seule des tarifs en vigueur dans l'onglet Tarification. Pour modifier ces valeurs : Tarification → bouton cadenas (admin).</p>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                            <Card title="Prestations à tarif fixe" icon={<Calculator size={16} />}>
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 uppercase text-xs border-b"><tr><th className="px-4 py-2">Désignation</th><th className="px-4 py-2 text-right">Tarif</th></tr></thead>
+                                    <tbody>
+                                        {fixedRows.map((r, i) => (<tr key={i} className="border-b last:border-0 hover:bg-slate-50"><td className="px-4 py-2 text-slate-700">{r.label}</td><td className="px-4 py-2 text-right font-semibold text-slate-800">{r.val}</td></tr>))}
+                                    </tbody>
+                                </table>
+                            </Card>
+                            <div className="flex flex-col gap-6">
+                                <Card title="Distance — LOCAL" icon={<MapPin size={16} />}>
+                                    <table className="w-full text-sm text-center">
+                                        <thead className="bg-slate-50 text-slate-500 uppercase text-xs border-b"><tr><th className="px-3 py-2">De (km)</th><th className="px-3 py-2">À (km)</th><th className="px-3 py-2">Prix / km</th></tr></thead>
+                                        <tbody>
+                                            {localGrid.map((r) => (<tr key={r.id} className="border-b last:border-0 hover:bg-slate-50"><td className="px-3 py-2">{r.min}</td><td className="px-3 py-2">{r.max}</td><td className="px-3 py-2 font-semibold">{formatCurrency(r.price)}</td></tr>))}
+                                        </tbody>
+                                    </table>
+                                </Card>
+                                <Card title="Distance — NATIONAL (forfaits)" icon={<MapIcon size={16} />}>
+                                    <table className="w-full text-sm text-center">
+                                        <thead className="bg-slate-50 text-slate-500 uppercase text-xs border-b"><tr><th className="px-3 py-2">Jusqu'à (km)</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Valeur</th></tr></thead>
+                                        <tbody>
+                                            {sortedNat.map((r) => (<tr key={r.id} className="border-b last:border-0 hover:bg-slate-50"><td className="px-3 py-2">{r.max >= 99999 ? 'au-delà' : r.max}</td><td className="px-3 py-2">{r.type === 'fixed' ? 'Forfait' : '€/km'}</td><td className="px-3 py-2 font-semibold">{r.type === 'fixed' ? formatCurrency(r.value + (r.addOn || 0)) : formatCurrency(r.value) + '/km'}</td></tr>))}
+                                        </tbody>
+                                    </table>
+                                </Card>
+                            </div>
+                        </div>
+                        <Card title="Grille volume (m³) — prix au m³, étages, portage, camions" icon={<Box size={16} />}>
+                            <div className="max-h-[420px] overflow-y-auto">
+                                <table className="w-full text-sm text-center">
+                                    <thead className="bg-slate-100 text-slate-600 uppercase text-xs sticky top-0"><tr><th className="px-3 py-2">m³</th><th className="px-3 py-2">Prix base (€/m³)</th><th className="px-3 py-2">Étages (€)</th><th className="px-3 py-2">Portage (€)</th><th className="px-3 py-2">Confort (€)</th><th className="px-3 py-2">Camions</th></tr></thead>
+                                    <tbody>
+                                        {matrixData.map((r) => (<tr key={r.m3} className="border-b last:border-0 hover:bg-slate-50"><td className="px-3 py-2 font-bold bg-slate-50">{r.m3}</td><td className="px-3 py-2">{Number(r.prix).toFixed(2)}</td><td className="px-3 py-2">{r.etage}</td><td className="px-3 py-2">{r.portage}</td><td className="px-3 py-2">{r.confort}</td><td className="px-3 py-2 text-slate-500">{r.camion}</td></tr>))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            );
+        };
+
+        /* =================================================================
+           APP — accès, onglets, Firebase, diffusion de version
+           ================================================================= */
+        const App = () => {
+            const [unlocked, setUnlocked] = useState(false);
+            const [accessCode, setAccessCode] = useState('');
+            const [accessError, setAccessError] = useState('');
+            const [tab, setTab] = useState('tarification');
+            const [db, setDb] = useState(null);
+            const [authReady, setAuthReady] = useState(false);
+            const [latestVersion, setLatestVersion] = useState(null);
+            const [updateAvailable, setUpdateAvailable] = useState(false);
+            const [appToast, setAppToast] = useState('');
+            // Configuration tarifaire partagée (Tarification + Console)
+            const [prices, setPrices] = useState(() => { const p = { l1: 1300 }; [...INITIAL_DATA.prestation, ...INITIAL_DATA.ra_monte_meuble, ...INITIAL_DATA.materiel].forEach(i => p[i.id] = i.defaultPrice); return p; });
+            const [matrixData, setMatrixData] = useState(() => generateInitialMatrix());
+            const [nationalGrid, setNationalGrid] = useState(() => DEFAULT_NATIONAL_GRID);
+            const [localGrid, setLocalGrid] = useState(() => DEFAULT_LOCAL_GRID);
+            const [consoleUnlocked, setConsoleUnlocked] = useState(false);
+            const [showConsoleCode, setShowConsoleCode] = useState(false);
+            const [consoleCodeInput, setConsoleCodeInput] = useState('');
+            const [consoleError, setConsoleError] = useState('');
+            const initedRef = useRef(false);
+
+            const verifyConsole = () => {
+                if (consoleCodeInput === ADMIN_CODE) { setConsoleUnlocked(true); setShowConsoleCode(false); setConsoleCodeInput(''); setConsoleError(''); setTab('console'); }
+                else { setConsoleError('Code incorrect'); }
+            };
+
+            const cfgRef = (database) => database.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('config').doc('app');
+
+            // Cache busting local
+            useEffect(() => {
+                try {
+                    const VK = 'h2_app_version';
+                    if (LS.get(VK) !== APP_VERSION) { LS.remove('h2_catalog'); LS.set(VK, APP_VERSION); }
+                } catch (e) {
+                    // erreurs de stockage ignorées
+                }
+            }, []);
+
+            // Initialisation Firebase (uniquement si une configuration est fournie)
+            useEffect(() => {
+                if (initedRef.current) return;
+                initedRef.current = true;
+                let config = {};
+                try {
+                    if (typeof __firebase_config !== 'undefined' && __firebase_config) config = JSON.parse(__firebase_config);
+                    else if (FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey) config = FIREBASE_CONFIG;
+                } catch (e) { config = {}; }
+
+                if (Object.keys(config).length > 0 && window.firebase) {
+                    try {
+                        firebase.initializeApp(config);
+                        const auth = firebase.auth();
+                        const database = firebase.firestore();
+                        (async () => {
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await auth.signInWithCustomToken(__initial_auth_token);
+                                else await auth.signInAnonymously();
+                                setDb(database);
+                                setAuthReady(true);
+                            } catch (e) { console.error("Auth Firebase :", e); }
+                        })();
+                    } catch (e) { console.error("Init Firebase :", e); }
+                }
+            }, []);
+
+            // Écoute de la version publiée dans le cloud
+            useEffect(() => {
+                if (!db || !authReady) return;
+                const unsub = cfgRef(db).onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const v = doc.data().latestVersion;
+                        setLatestVersion(v || null);
+                        if (v && cmpVer(v, APP_VERSION) > 0) setUpdateAvailable(true);
+                    }
+                }, (e) => console.error("Écoute version :", e));
+                return () => unsub && unsub();
+            }, [db, authReady]);
+
+            const publishVersion = async () => {
+                if (!db) { setAppToast("Firebase non connecté"); setTimeout(() => setAppToast(''), 2500); return; }
+                try {
+                    await cfgRef(db).set({ latestVersion: APP_VERSION, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                    setAppToast("Version v" + APP_VERSION + " publiée. Les utilisateurs vont être invités à recharger.");
+                } catch (e) { setAppToast("Échec de la publication"); }
+                setTimeout(() => setAppToast(''), 4000);
+            };
+
+            const handleAccess = (e) => {
+                e.preventDefault();
+                if (accessCode === ACCESS_CODE) { setUnlocked(true); setAccessError(''); }
+                else setAccessError("Code d'accès incorrect");
+            };
+
+            // --- Écran d'accès ---
+            if (!unlocked) {
+                return (
+                    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+                        <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
+                            <div className="flex justify-center mb-6"><div className="bg-slate-800 p-4 rounded-full text-white shadow-lg"><KeyRound size={32} /></div></div>
+                            <h1 className="text-2xl font-bold text-center mb-1 text-slate-800">H2 LOGISTIQUE</h1>
+                            <p className="text-center text-xs text-slate-400 mb-6">Application interne · v{APP_VERSION}</p>
+                            <div>
+                                <input type="password" value={accessCode} onChange={e => setAccessCode(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAccess(e); }} placeholder="Code d'accès" className="w-full p-3 border border-slate-300 rounded-lg mb-4 text-center text-lg outline-none focus:ring-2 focus:ring-slate-800" autoFocus />
+                                {accessError && <p className="text-red-500 text-sm text-center mb-4 font-medium">{accessError}</p>}
+                                <button type="button" onClick={handleAccess} className="w-full py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700 shadow-md">Entrer</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- Application ---
+            return (
+                <div className="min-h-screen bg-slate-100">
+                    {updateAvailable && (
+                        <div className="bg-indigo-600 text-white px-4 py-2.5 flex flex-wrap items-center justify-center gap-3 text-sm font-medium no-print">
+                            <RefreshCw size={16} />
+                            <span>Une nouvelle version (v{latestVersion}) est disponible.</span>
+                            <button onClick={() => window.location.reload()} className="bg-white text-indigo-700 font-bold px-3 py-1 rounded-md hover:bg-indigo-50">Recharger</button>
+                            <button onClick={() => setUpdateAvailable(false)} className="opacity-70 hover:opacity-100"><X size={16} /></button>
+                        </div>
+                    )}
+
+                    <header className="bg-white border-b border-slate-200 sticky top-0 z-[40] shadow-sm">
+                        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+                            <div className="flex flex-col leading-tight">
+                                <h1 className="text-lg sm:text-xl font-bold text-slate-900">H2 LOGISTIQUE</h1>
+                                <span className="text-[10px] text-slate-400 font-mono">v{APP_VERSION}</span>
+                            </div>
+                            <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                                <button onClick={() => setTab('tarification')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-semibold rounded-md transition ${tab === 'tarification' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Calculator size={16} /><span className="hidden sm:inline">Tarification</span></button>
+                                <button onClick={() => setTab('cubage')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-semibold rounded-md transition ${tab === 'cubage' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Box size={16} /><span className="hidden sm:inline">Cubage & Inventaire</span></button>
+                                <button onClick={() => { if (consoleUnlocked) { setTab('console'); } else { setShowConsoleCode(true); } }} className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-semibold rounded-md transition ${tab === 'console' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Lock size={16} /><span className="hidden sm:inline">Console</span></button>
+                            </div>
+                            <div className="w-16 hidden sm:block"></div>
+                        </div>
+                    </header>
+
+                    <main>
+                        {tab === 'tarification' && <PriceModule db={db} dbReady={!!(db && authReady)} latestVersion={latestVersion} publishVersion={publishVersion} sharedPrices={prices} setSharedPrices={setPrices} sharedMatrix={matrixData} setSharedMatrix={setMatrixData} sharedNatGrid={nationalGrid} setSharedNatGrid={setNationalGrid} sharedLocalGrid={localGrid} setSharedLocalGrid={setLocalGrid} />}
+                        {tab === 'cubage' && <CubageModule db={db} dbReady={!!(db && authReady)} />}
+                        {tab === 'console' && <ConsoleView prices={prices} localGrid={localGrid} nationalGrid={nationalGrid} matrixData={matrixData} />}
+                    </main>
+
+                    {/* Modal code Console */}
+                    {showConsoleCode && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                                <div className="flex items-center gap-3 mb-4"><div className="bg-slate-100 p-2 rounded-full"><Lock size={20} className="text-slate-700" /></div><h2 className="text-xl font-bold text-slate-800">Accès Console</h2></div>
+                                <p className="text-sm text-slate-500 mb-4">Entrez le code administrateur pour accéder à la console des tarifs.</p>
+                                <input type="password" value={consoleCodeInput} onChange={e => setConsoleCodeInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') verifyConsole(); }} autoFocus placeholder="Code administrateur" className="w-full p-3 border border-slate-300 rounded-lg mb-3 text-center tracking-widest text-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                                {consoleError && <p className="text-red-500 text-xs mb-3 text-center font-medium">{consoleError}</p>}
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => { setShowConsoleCode(false); setConsoleError(''); setConsoleCodeInput(''); }} className="flex-1 py-2 text-slate-600 font-medium bg-slate-100 rounded-lg hover:bg-slate-200">Annuler</button>
+                                    <button type="button" onClick={verifyConsole} className="flex-1 py-2 text-white font-medium bg-blue-600 rounded-lg hover:bg-blue-700">Valider</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {appToast && <Toast msg={appToast} />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
