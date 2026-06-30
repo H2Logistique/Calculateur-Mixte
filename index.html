@@ -648,14 +648,16 @@ Inventaire :
                     if (band.type === 'fixed') {
                         const forfait = band.value + addOn; // tous camions inclus
                         if (isGroupageActive) {
-                            const groupageCalc = (forfait / 20) * (quantities['p1'] || 0) * 1.35;
+                            const cubageEffectif = Math.max(quantities['p1'] || 0, 5);
+                            const groupageCalc = (forfait / 20) * cubageEffectif * 1.4;
                             return Math.round(Math.min(groupageCalc, forfait));
                         }
                         return Math.round(forfait);
                     } else { // perKm
                         const perTruck = dist * band.value + addOn;
                         if (isGroupageActive) {
-                            const groupageCalc = (perTruck / 20) * (quantities['p1'] || 0) * 1.35;
+                            const cubageEffectif = Math.max(quantities['p1'] || 0, 5);
+                            const groupageCalc = (perTruck / 20) * cubageEffectif * 1.4;
                             return Math.round(Math.min(groupageCalc, perTruck * (quantities['l1'] || 0)));
                         }
                         return Math.round(perTruck * (quantities['l1'] || 0));
