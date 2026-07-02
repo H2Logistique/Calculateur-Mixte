@@ -42,8 +42,8 @@
         /* =================================================================
            CONFIGURATION GLOBALE
            ================================================================= */
-        const APP_VERSION = "2.2";            // <-- incrémenter à chaque déploiement
-        const ACCESS_CODE = "8540";           // code d'accès à l'application
+        const APP_VERSION = "2.0";            // <-- incrémenter à chaque déploiement
+        const ACCESS_CODE = "1010";           // code d'accès à l'application
         const ADMIN_CODE  = "2525";           // code administrateur (tarification + catalogue)
 
         // Renseignez ici les clés de votre projet Firebase pour le déploiement
@@ -646,10 +646,10 @@ Inventaire :
                     if (!band) return 0;
                     const addOn = band.addOn || 0;
                     if (band.type === 'fixed') {
-                        const forfait = band.value + addOn; // tous camions inclus
+                        const forfait = (band.value + addOn) * (quantities['l1'] || 1);
                         if (isGroupageActive) {
                             const cubageEffectif = Math.max(quantities['p1'] || 0, 5);
-                            const groupageCalc = (forfait / 20) * cubageEffectif * 1.4;
+                            const groupageCalc = (forfait / 20) * cubageEffectif * 1.35;
                             return Math.round(Math.min(groupageCalc, forfait));
                         }
                         return Math.round(forfait);
@@ -657,7 +657,7 @@ Inventaire :
                         const perTruck = dist * band.value + addOn;
                         if (isGroupageActive) {
                             const cubageEffectif = Math.max(quantities['p1'] || 0, 5);
-                            const groupageCalc = (perTruck / 20) * cubageEffectif * 1.4;
+                            const groupageCalc = (perTruck / 20) * cubageEffectif * 1.35;
                             return Math.round(Math.min(groupageCalc, perTruck * (quantities['l1'] || 0)));
                         }
                         return Math.round(perTruck * (quantities['l1'] || 0));
@@ -745,7 +745,7 @@ Inventaire :
                                                 </div>
                                             </div>
                                             <select value={adjustment} onChange={e => setAdjustment(parseInt(e.target.value))} className="w-full p-2.5 text-base border border-slate-300 rounded-lg bg-slate-50 outline-none font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer">
-                                                <option value="-30">- 30%</option><option value="-20">- 20%</option><option value="-10">- 10%</option><option value="0">0%</option><option value="10">+ 10%</option><option value="20">+ 20%</option><option value="30">+ 30%</option>
+                                                <option value="-15">- 15%</option><option value="-10">- 10%</option><option value="-5">- 5%</option><option value="0">0%</option><option value="5">+ 5%</option><option value="10">+ 10%</option><option value="15">+ 15%</option>
                                             </select>
                                         </div>
                                         <div className="flex flex-col gap-4">
