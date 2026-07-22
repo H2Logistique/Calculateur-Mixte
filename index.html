@@ -124,16 +124,20 @@
         const INITIAL_DATA = {
             prestation: [
                 { id: 'p1', name: 'Cubage m3', defaultPrice: 35 },
-                { id: 'p2', name: 'Étages et escalier', defaultPrice: 1, info: "Si l'ascenseur est petit (2p ou 3p) et que l'essentiel du mobilier doit être transporté par l'escalier, ajustez le nombre. Ex : 4e étage, indiquez 2 ou 3 en quantité afin de majorer le prix." },
-                { id: 'p3', name: 'Démontage / Remontage', defaultPrice: 50, info: "Appliquer pour le mobilier volumineux (Armoire, lit, vaisselier, canapé-lit...)" },
+                { id: 'p2', name: 'Étages sans ascenseur', defaultPrice: 1 },
+                { id: 'p2b', name: 'Étages avec petit ascenseur (<=3p)', defaultPrice: 1 },
+                { id: 'p3', name: 'Démontage / Remontage', defaultPrice: 50, info: "À remplir pour le mobilier volumineux : Armoire, lit, vaisselier, canapé-lit..." },
                 { id: 'p4', name: 'Portage (en m)', defaultPrice: 0.75 },
-                { id: 'p9', name: 'Option Confort', defaultPrice: 160 },
-                { id: 'p8', name: 'Distance (km)', iconType: 'local', defaultPrice: 1, unit: 'km', info: "Calcul : Départ de Paris vers Adresse A + Adresse B" },
-                { id: 'l2', name: 'Distance (km)', iconType: 'national', defaultPrice: 3.5, unit: 'km', info: "Le prix national est calculé par FORFAIT selon la distance (grille éditable en admin). Au-delà du dernier palier : prix au km." },
+                { id: 'p9', name: 'Option Confort', defaultPrice: 0 },
+                { id: 'p9_cartons', name: 'Nombre de cartons (Confort)', defaultPrice: 85, info: "85 € par tranche de 10 cartons. À remplir uniquement si Option Confort = OUI." },
+                { id: 'p8', name: 'Distance (km)', iconType: 'local', defaultPrice: 1, unit: 'km' },
+                { id: 'l2', name: 'Distance (km)', iconType: 'national', defaultPrice: 3.5, unit: 'km' },
                 { id: 'l4', name: 'Transport en groupage', defaultPrice: 0 },
+                { id: 'p10', name: 'Chargement le matin', defaultPrice: 400, info: "Facturation : 400 € par fourgon (forfaits nationaux uniquement). Activez avec OUI si le chargement doit commencer le matin." },
             ],
             ra_monte_meuble: [
-                { id: 'p5', name: 'Monte-meuble 1/2 journée', defaultPrice: 220 },
+                { id: 'p5', name: 'Monte-meuble 1 passage (1 meuble)', defaultPrice: 150 },
+                { id: 'p5b', name: 'Monte-meuble 1/2 journée', defaultPrice: 220 },
                 { id: 'p6', name: 'Monte-meuble 1 journée', defaultPrice: 320 },
                 { id: 'p7', name: 'AOT (Autorisation Stationnement)', defaultPrice: 25 },
             ],
@@ -225,7 +229,7 @@
             { id: 81, name: "Meuble à chaussures", vol: 1 }, { id: 82, name: "Meuble haut/bas (1 bloc)", vol: 0.5 },
             { id: 83, name: "Meuble haut/bas (2 bloc)", vol: 1 }, { id: 84, name: "Meuble haut/bas (3 bloc)", vol: 1.5 },
             { id: 85, name: "Meuble haut/bas (4 bloc)", vol: 2 }, { id: 86, name: "Meuble Kallax (12 cases)", vol: 1 },
-            { id: 87, name: "Meuble Kallax (16 cases)", vol: 1.2 }, { id: 88, name: "Meuble Kallax (4 cases)", vol: 0.3 },
+            { id: 87, name: "Meuble Kallax (16 cases)", vol: 0.2 }, { id: 88, name: "Meuble Kallax (4 cases)", vol: 0.3 },
             { id: 89, name: "Meuble Kallax (8 cases)", vol: 0.6 }, { id: 90, name: "Meuble TV (grand)", vol: 1.5 },
             { id: 91, name: "Meuble TV (moyen)", vol: 1 }, { id: 92, name: "Meuble TV (petit)", vol: 0.5 },
             { id: 93, name: "Micro ondes", vol: 0.1 }, { id: 94, name: "Miroir (grand)", vol: 0.3 },
@@ -271,8 +275,8 @@
             { id: 173, name: "Mobilier demonté", vol: -0.5 }
         ];
 
-        const ROOMS = ["Generale", "Salon", "Cuisine", "Chambre 1", "Chambre 2", "Chambre 3", "Chambre 4", "SDB", "Entree", "Garage", "Exterieur", "Divers"];
-        const ROOM_LABELS = { Generale: "Générale", Salon: "Salon / Séjour", Cuisine: "Cuisine", "Chambre 1": "Chambre 1", "Chambre 2": "Chambre 2", "Chambre 3": "Chambre 3", "Chambre 4": "Chambre 4", SDB: "Salle de bain / WC", Entree: "Entrée / Couloir", Garage: "Garage / Cave", Exterieur: "Extérieur", Divers: "Divers" };
+        const ROOMS = ["Generale", "Salon", "Cuisine", "Chambre 1", "Chambre 2", "Chambre 3", "Chambre 4", "Chambre 5", "Bureau 1", "Bureau 2", "Déchèterie", "SDB", "Entree", "Garage", "Exterieur", "Divers"];
+        const ROOM_LABELS = { Generale: "Générale", Salon: "Salon / Séjour", Cuisine: "Cuisine", "Chambre 1": "Chambre 1", "Chambre 2": "Chambre 2", "Chambre 3": "Chambre 3", "Chambre 4": "Chambre 4", "Chambre 5": "Chambre 5", "Bureau 1": "Bureau 1", "Bureau 2": "Bureau 2", Déchèterie: "Déchèterie", SDB: "Salle de bain / WC", Entree: "Entrée / Couloir", Garage: "Garage / Cave", Exterieur: "Extérieur", Divers: "Divers" };
 
         const DEFAULT_NOTES = `Adresse de chargement : 
 
@@ -467,7 +471,8 @@ Inventaire :
             const [open, setOpen] = useState(defaultExpanded);
             const computed = items.reduce((s, it) => s + calculateRowTotal(it.id), 0);
             const sectionTotal = customTotal !== undefined ? customTotal : computed;
-            const booleanItems = ['p5', 'p6', 'p7', 'l4', 'p9'];
+            const booleanItems = ['p5', 'p5b', 'p6', 'p7', 'l4', 'p9', 'p10'];
+            const readOnlyForConfortCartons = (it) => it.id === 'p9_cartons' && quantities['p9'] !== 1;
             return (
                 <div className="mb-4 bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
                     <div className={`px-6 py-4 ${colorClass} border-b border-slate-200 flex justify-between items-center`}>
@@ -486,10 +491,13 @@ Inventaire :
                                 <thead className="text-xs text-slate-500 uppercase bg-slate-50"><tr><th className="px-6 py-3 w-1/3">Désignation</th><th className="px-6 py-3 w-1/4 text-center">{quantityLabel}</th><th className="px-6 py-3 w-1/4 text-right">Unité de prix</th><th className="px-6 py-3 w-1/6 text-right">Total</th></tr></thead>
                                 <tbody>
                                     {items.map((item) => {
+                                        // Masquer p9_cartons si p9 !== 1
+                                        if (item.id === 'p9_cartons' && quantities['p9'] !== 1) return null;
+                                        
                                         const qv = quantities[item.id];
                                         const displayQty = (qv === 0 || qv === undefined) ? '' : qv;
                                         const isBool = booleanItems.includes(item.id);
-                                        const isDisabled = disableQuantityInput || item.readOnlyQuantity;
+                                        const isDisabled = disableQuantityInput || item.readOnlyQuantity || readOnlyForConfortCartons(item);
                                         return (
                                             <tr key={item.id} className="border-b hover:bg-slate-50">
                                                 <td className="px-6 py-4 font-medium text-slate-900">
@@ -516,7 +524,7 @@ Inventaire :
                                                     )}
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
-                                                    {item.id === 'l4' ? <span className="text-slate-400 text-xs italic">Option</span> : item.id === 'l2' ? <span className="text-blue-600 font-medium text-xs">Forfait</span> : <span className="text-slate-600 font-medium">{formatCurrency(prices[item.id])}</span>}
+                                                    {item.id === 'l4' || item.id === 'p9' ? <span className="text-slate-400 text-xs italic">Option</span> : item.id === 'l2' ? <span className="text-blue-600 font-medium text-xs">Forfait</span> : item.id === 'p2b' ? <span className="text-slate-600 font-medium text-xs">{formatCurrency(prices['p2'])}/étage (÷2)</span> : item.id === 'p10' ? <span className="text-slate-600 font-medium text-xs">{formatCurrency(item.defaultPrice)}/fourgon</span> : item.id === 'p9_cartons' ? <span className="text-slate-600 font-medium text-xs">85 €/10 cartons</span> : <span className="text-slate-600 font-medium">{formatCurrency(prices[item.id])}</span>}
                                                 </td>
                                                 <td className="px-6 py-4 text-right font-bold text-slate-700">{formatCurrency(calculateRowTotal(item.id))}</td>
                                             </tr>
@@ -602,7 +610,6 @@ Inventaire :
                 if (id === 'p8' && newVal > 100) setAlertType('approche');
                 if ((id === 'p1' || id === 'p8') && tempLocalDist > 50 && tempCubage > 0 && tempCubage < 15) setAlertType('cubage_distance');
                 if (id === 'l4' && newVal === 1) setInfoPopup({ title: "Information Groupage", message: "Notifier au client le besoin de disponibilité. Ne rédiger aucune date ferme sur le devis." });
-                if (id === 'p9' && newVal === 1) setInfoPopup({ title: "Option Confort", message: "Les cartons sont inclus dans le prix de l'option Confort (160 € par tranche de 10 m³). Ne remplissez pas la section « 3. Matériel & Livraison ». Si le nombre de cartons demandé est extrême, adaptez le prix manuellement." });
 
                 if (id === 'p8') {
                     setPrices(prev => { const next = { ...prev }; const rule = localGrid.find(r => newVal >= r.min && newVal <= r.max); next['p8'] = rule ? rule.price : (localGrid[0]?.price || 1); return next; });
@@ -610,8 +617,9 @@ Inventaire :
 
                 setQuantities(prev => {
                     const next = { ...prev, [id]: value === '' ? 0 : newVal };
-                    if (['m1', 'm2', 'm3', 'm4', 'm5'].includes(id)) { const hasMat = ['m1', 'm2', 'm3', 'm4', 'm5'].some(mid => (mid === id ? newVal : prev[mid]) > 0); next['m6'] = hasMat ? 1 : 0; }
-                    if (id === 'p5' || id === 'p6') { if (next['p5'] === 1 || next['p6'] === 1) next['p7'] = 1; else if (next['p5'] === 0 && next['p6'] === 0) next['p7'] = 0; }
+                    if (id === 'p9' && newVal === 0) next['p9_cartons'] = 0;
+                    if (['m1', 'm2', 'm3', 'm4', 'm5'].includes(id)) { const hasMat = ['m1', 'm2', 'm3', 'm4', 'm5'].some(mid => (mid === id ? newVal : prev[mid]) > 0); next['m6'] = (hasMat && prev['p9'] !== 1) ? 1 : (prev['p9'] === 1 ? 0 : next['m6']); }
+                    if (id === 'p5b' || id === 'p6') { if (next['p5b'] === 1 || next['p6'] === 1) next['p7'] = 1; else if (next['p5b'] === 0 && next['p6'] === 0) next['p7'] = 0; }
                     return next;
                 });
                 if (id === 'p1') updatePricesBasedOnCubage(newVal);
@@ -636,9 +644,17 @@ Inventaire :
                 const isGroupageActive = quantities['l4'] === 1;
 
                 if (id === 'p8') { const rule = localGrid.find(r => qty >= r.min && qty <= r.max); if (!rule) return 0; return qty * rule.price * (quantities['l1'] || 0); }
-                if (id === 'p2') return Math.round((price * (quantities['p1'] || 0) * qty) / 5) * 5;
+                if (id === 'p2') { const baseEtages = (price * (quantities['p1'] || 0) * qty); return Math.round((baseEtages / 5)) * 5; }
+                if (id === 'p2b') { const p2bPrice = prices['p2'] || 0; const cubage = quantities['p1'] || 0; return Math.round((p2bPrice * cubage * qty / 2) / 5) * 5; }
                 if (id === 'p4') { if (qty <= 20) return 0; return Math.round((price * qty * (quantities['l1'] || 0)) / 5) * 5; }
-                if (id === 'p9') return qty === 1 ? price : 0;
+                if (id === 'p9') { if (quantities['p9'] !== 1) return 0; const cartons = quantities['p9_cartons'] || 0; return Math.round((cartons / 10) * 85); }
+                if (id === 'p9_cartons') { if (quantities['p9'] !== 1) return 0; const cartons = qty || 0; return Math.round((cartons / 10) * 85); }
+                if (id === 'p10') { 
+                    if (quantities['p10'] !== 1 || dist === 0) return 0;
+                    const band = findNationalBand(dist);
+                    if (!band || band.type !== 'fixed') return 0;
+                    return price * (quantities['l1'] || 0);
+                }
                 if (id === 'l1') return 0;
                 if (id === 'l2') {
                     if (dist === 0) return 0;
@@ -653,7 +669,7 @@ Inventaire :
                             return Math.round(Math.min(groupageCalc, forfait));
                         }
                         return Math.round(forfait);
-                    } else { // perKm
+                    } else {
                         const perTruck = dist * band.value + addOn;
                         if (isGroupageActive) {
                             const cubageEffectif = Math.max(quantities['p1'] || 0, 5);
@@ -670,18 +686,21 @@ Inventaire :
 
             const calculateSectionTotal = (items) => items.reduce((s, it) => s + calculateRowTotal(it.id), 0);
 
-            const basePrestationItems = INITIAL_DATA.prestation.filter(i => i.id !== 'l2' && i.id !== 'l4');
+            const basePrestationItems = INITIAL_DATA.prestation.filter(i => i.id !== 'l2' && i.id !== 'l4' && i.id !== 'p10');
             const prestationTotalForBase = calculateSectionTotal(basePrestationItems);
             const raTotal = calculateSectionTotal(INITIAL_DATA.ra_monte_meuble);
-            const materielTotal = Math.round(calculateSectionTotal(INITIAL_DATA.materiel) / 5) * 5;
-            const effectiveMaterielTotal = quantities['p9'] === 1 ? 0 : materielTotal;
+            const materielCartonItems = INITIAL_DATA.materiel.filter(i => !['m6'].includes(i.id));
+            const materielCartonTotal = Math.round(calculateSectionTotal(materielCartonItems) / 5) * 5;
+            const livraison = calculateRowTotal('m6');
+            const effectiveMaterielTotal = (quantities['p9'] === 1 ? 0 : materielCartonTotal) + livraison;
             const distanceTotal = calculateRowTotal('l2');
             const baseTotal = Math.round((prestationTotalForBase + raTotal + effectiveMaterielTotal) / 5) * 5;
             const prestationLDAddon = prestationTotalForBase - calculateRowTotal('p1') - calculateRowTotal('p8');
             const isGroupageActive = quantities['l4'] === 1;
-            const thirdTotalBase = Math.round((distanceTotal + effectiveMaterielTotal + raTotal + prestationLDAddon) / 5) * 5;
+            const chargementMatin = calculateRowTotal('p10');
+            const thirdTotalBase = Math.round((distanceTotal + effectiveMaterielTotal + raTotal + prestationLDAddon + chargementMatin) / 5) * 5;
 
-            let prestationSubtotal = calculateSectionTotal(INITIAL_DATA.prestation);
+            let prestationSubtotal = calculateSectionTotal(INITIAL_DATA.prestation.filter(i => i.id !== 'p10'));
             if (distanceTotal > 0) prestationSubtotal -= calculateRowTotal('p1');
 
             const needsConfirmationLD = quantities['p1'] >= 27 && quantities['p1'] <= 33;
@@ -1056,8 +1075,9 @@ Inventaire :
         const ConsoleView = ({ prices, localGrid, nationalGrid, matrixData }) => {
             const fixedRows = [
                 { label: 'Démontage / Remontage (par meuble)', val: formatCurrency(prices.p3) },
-                { label: 'Option Confort (par tranche de 10 m³)', val: formatCurrency((matrixData.find(r => r.m3 === 10) || {}).confort || 160) },
-                { label: 'Monte-meuble — 1/2 journée', val: formatCurrency(prices.p5) },
+                { label: 'Option Confort (tarif : 85 € / 10 cartons)', val: '—' },
+                { label: 'Monte-meuble — 1 passage (1 meuble)', val: formatCurrency(prices.p5) },
+                { label: 'Monte-meuble — 1/2 journée', val: formatCurrency(prices.p5b) },
                 { label: 'Monte-meuble — 1 journée', val: formatCurrency(prices.p6) },
                 { label: 'AOT (autorisation de stationnement)', val: formatCurrency(prices.p7) },
                 { label: 'Livraison de matériel', val: formatCurrency(prices.m6) },
